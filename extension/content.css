@@ -1,0 +1,177 @@
+.escuta {
+  --paper: #f4f6f8;
+  --ink: #141b26;
+  --mute: #5b6675;
+  --line: #d9dfe6;
+  --signal: #3347ff;
+  --signal-ink: #ffffff;
+  --mark: #ffc53d;
+  --mark-soft: #fff4d6;
+  --danger: #b42318;
+
+  display: block;
+  box-sizing: border-box;
+  width: min(calc(100% - 24px), 380px);
+  margin: 6px 12px 8px;
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+}
+
+:is(.dark, [data-theme="dark"]) .escuta {
+  --paper: #1c2430;
+  --ink: #e7ecf2;
+  --mute: #9aa6b6;
+  --line: #2f3b4b;
+  --signal: #8e9bff;
+  --signal-ink: #10163d;
+  --mark-soft: #3a3120;
+  --danger: #ff8a7a;
+}
+
+.escuta--out {
+  margin-left: auto;
+}
+
+.escuta *,
+.escuta *::before,
+.escuta *::after {
+  box-sizing: border-box;
+}
+
+/* Waveform: the mark of the extension, animated only while work is running. */
+.escuta-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+}
+
+.escuta-wave i {
+  display: block;
+  width: 2px;
+  height: 5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.escuta-wave i:nth-child(2) { height: 10px; }
+.escuta-wave i:nth-child(3) { height: 14px; }
+.escuta-wave i:nth-child(4) { height: 7px; }
+
+.escuta-working .escuta-wave i {
+  animation: escuta-pulse 900ms ease-in-out infinite;
+}
+.escuta-working .escuta-wave i:nth-child(2) { animation-delay: 120ms; }
+.escuta-working .escuta-wave i:nth-child(3) { animation-delay: 240ms; }
+.escuta-working .escuta-wave i:nth-child(4) { animation-delay: 360ms; }
+
+@keyframes escuta-pulse {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(1.25); }
+}
+
+.escuta-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--signal);
+  font-weight: 500;
+}
+
+.escuta-working span:last-child { color: var(--mute); }
+
+.escuta-working--small {
+  margin-top: 10px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* Buttons */
+.escuta-btn {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: 500 12px/1.4 system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.escuta-btn:hover { background: var(--paper); border-color: var(--signal); }
+.escuta-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+.escuta-btn--start {
+  padding: 6px 14px 6px 12px;
+  background: var(--paper);
+  color: var(--signal);
+}
+
+.escuta-btn--primary {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+.escuta-btn--primary:hover { background: var(--signal); filter: brightness(1.08); }
+
+/* Transcript slip */
+.escuta-card {
+  padding: 12px 14px 10px 16px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--signal);
+  border-radius: 4px 12px 12px 4px;
+  background: var(--paper);
+}
+
+.escuta-card--error { border-left-color: var(--danger); }
+
+.escuta-label {
+  margin-bottom: 4px;
+  font: 600 10px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.escuta-text {
+  margin: 0;
+  font: 400 14px/1.5 ui-serif, "New York", Georgia, serif;
+  color: var(--ink);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.escuta-summary {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--mark);
+  border-radius: 2px 8px 8px 2px;
+  background: var(--mark-soft);
+}
+
+.escuta-error {
+  margin: 0 0 8px;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.escuta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .escuta-working .escuta-wave i { animation: none; }
+  .escuta-btn { transition: none; }
+}

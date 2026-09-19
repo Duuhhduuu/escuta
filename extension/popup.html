@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Escuta</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <h1>Escuta</h1>
+    </header>
+
+    <section aria-labelledby="status-title">
+      <h2 id="status-title">Motores locais</h2>
+      <ul class="status">
+        <li><span class="dot" id="dot-server"></span><span>Servidor</span><em id="txt-server">verificando…</em></li>
+        <li><span class="dot" id="dot-whisper"></span><span>Whisper</span><em id="txt-whisper">verificando…</em></li>
+        <li><span class="dot" id="dot-ollama"></span><span>Ollama</span><em id="txt-ollama">verificando…</em></li>
+      </ul>
+      <p class="hint" id="hint" hidden></p>
+    </section>
+
+    <form id="form">
+      <h2>Ajustes</h2>
+      <label>
+        <span>Idioma do áudio</span>
+        <select id="language">
+          <option value="pt">Português</option>
+          <option value="en">Inglês</option>
+          <option value="es">Espanhol</option>
+          <option value="auto">Detectar</option>
+        </select>
+      </label>
+      <label>
+        <span>Modelo Whisper</span>
+        <select id="whisperModel">
+          <option value="mlx-community/whisper-large-v3-turbo">Turbo (recomendado)</option>
+          <option value="mlx-community/whisper-small-mlx">Small (mais leve)</option>
+          <option value="mlx-community/whisper-large-v3-mlx">Large v3 (mais lento)</option>
+        </select>
+      </label>
+      <label>
+        <span>Modelo de resumo (Ollama)</span>
+        <input id="ollamaModel" list="models" spellcheck="false" autocomplete="off" />
+        <datalist id="models"></datalist>
+      </label>
+      <button type="submit" id="save">Salvar ajustes</button>
+    </form>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
