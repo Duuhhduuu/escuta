@@ -12,6 +12,20 @@ const getToken = async () => (await chrome.storage.local.get("token")).token || 
 
 const fail = (code, message) => ({ ok: false, code, message });
 
+// Numa máquina sem GPU o turbo roda a ~2x tempo real e o small a ~6x. Quem nunca
+// escolheu um modelo fica com o que o servidor recomenda para o hardware dele.
+let recommended = null;
+
+async function resolveModel(chosen) {
+  const saved = await chrome.storage.sync.get("whisperModel");
+  if (saved.whisperModel !== undefined) return chosen;
+  if (recommended === null) {
+    const res = await call("/health", { method: "GET" }, 3_000);
+    recommended = (res.ok && res.data.recommendedModel) || DEFAULTS.whisperModel;
+  }
+  return recommended;
+}
+
 async function call(path, init, timeoutMs) {
   const token = await getToken();
   let res;
@@ -52,7 +66,10 @@ async function handle(msg) {
   const settings = await getSettings();
   switch (msg.type) {
     case "transcribe": {
-      const query = new URLSearchParams({ language: settings.language, model: settings.whisperModel });
+      const query = new URLSearchParams({
+        language: settings.language,
+        model: await resolveModel(settings.whisperModel),
+      });
       return withKeepAlive(() =>
         call(`/transcribe?${query}`, { method: "POST", body: base64ToBlob(msg.audio, msg.mime) }, 10 * 60_000),
       );

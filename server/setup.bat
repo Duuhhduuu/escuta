@@ -27,7 +27,7 @@ echo    faster-whisper ja instalado.
 REM Com placa NVIDIA: cuBLAS/cuDNN vem por pip, nao estao no PATH do Windows.
 REM Sem eles o ctranslate2 enxerga a GPU mas quebra na hora de calcular.
 where nvidia-smi >nul 2>&1
-if errorlevel 1 goto :sem_gpu
+if errorlevel 1 goto :sem_placa
 .venv\Scripts\python -m pip show nvidia-cublas-cu12 >nul 2>&1
 if not errorlevel 1 goto :cuda_ok
 echo    Placa NVIDIA encontrada. Instalando cuBLAS/cuDNN (uns 700 MB)...
@@ -36,6 +36,12 @@ if errorlevel 1 echo    Aviso: nao instalou as libs CUDA. A transcricao vai usar
 goto :sem_gpu
 :cuda_ok
 echo    Bibliotecas CUDA ja instaladas.
+goto :sem_gpu
+
+:sem_placa
+echo    Nenhuma placa NVIDIA encontrada. A transcricao vai rodar no processador.
+echo    Funciona, mas e mais lento: nesse caso a extensao ja escolhe sozinha
+echo    um modelo mais leve (Small), umas 2,5x mais rapido que o Turbo na CPU.
 :sem_gpu
 
 echo    Pronto. Inicie com: start.bat

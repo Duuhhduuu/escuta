@@ -39,7 +39,11 @@ async function checkHealth() {
     return;
   }
 
-  const { whisper, whisperEngine, ollama, ollamaModels, gemini, geminiModel } = res.data;
+  const { whisper, whisperEngine, ollama, ollamaModels, gemini, geminiModel, recommendedModel } = res.data;
+
+  // Nada salvo ainda: mostra o modelo que o servidor recomenda para este hardware.
+  const saved = await chrome.storage.sync.get("whisperModel");
+  if (saved.whisperModel === undefined && recommendedModel) $("whisperModel").value = recommendedModel;
   const summaryReady = gemini || ollama;
   setStatus("server", "ok", "ligado");
   setStatus("whisper", whisper ? "ok" : "bad", whisper ? whisperEngine || "pronto" : "não instalado");
@@ -48,6 +52,10 @@ async function checkHealth() {
   hint.hidden = whisper && summaryReady;
   if (!whisper) hint.textContent = "Rode na pasta server:\nsetup.bat (Windows) ou ./setup.sh";
   else if (!summaryReady) hint.textContent = "Abra o app Ollama ou defina GEMINI_API_KEY para gerar resumos.";
+  else if (recommendedModel === "small") {
+    hint.textContent = "Sem GPU nesta máquina: o modelo Small é umas 2,5x mais rápido que o Turbo aqui.";
+    hint.hidden = false;
+  }
 
   $("models").replaceChildren(
     ...ollamaModels.map((name) => Object.assign(document.createElement("option"), { value: name })),

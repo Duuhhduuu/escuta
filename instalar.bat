@@ -52,6 +52,8 @@ goto :fim
 
 :no_ar
 echo    Servidor no ar.
+curl.exe -s -m 5 http://127.0.0.1:8765/health | findstr /c:"CUDA" >nul 2>&1
+if errorlevel 1 (echo    Transcrevendo no processador ^(sem placa NVIDIA^).) else (echo    Transcrevendo na placa de video.)
 echo.
 echo  =========================================
 echo    Falta so um passo, que e manual:

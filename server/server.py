@@ -52,6 +52,7 @@ HOST = "127.0.0.1"
 PORT = int(os.environ.get("ESCUTA_PORT", "8765"))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 DEFAULT_WHISPER = "large-v3-turbo"
+CPU_MODEL = "small"  # sugerido quando não há GPU; ver recommended_model()
 DEFAULT_OLLAMA = "qwen2.5:7b"
 # When GEMINI_API_KEY is set, summaries go to Gemini (cloud). Otherwise they use Ollama (local).
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -122,8 +123,16 @@ def engine_label():
     if engine == "mlx":
         return "mlx-whisper"
     if engine == "faster":
-        return f"faster-whisper · {'CUDA' if cuda_available() else 'CPU'}"
+        # O device real, não só o que a placa permitiria: ESCUTA_DEVICE pode forçar CPU.
+        return f"faster-whisper · {'CUDA' if faster_device()[1] == 'cuda' else 'CPU'}"
     return ""
+
+
+def recommended_model():
+    """Sem GPU, o turbo roda a ~2x tempo real e o small a ~6x. Vale a troca."""
+    if whisper_engine() == "faster" and faster_device()[1] == "cpu":
+        return CPU_MODEL
+    return DEFAULT_WHISPER
 
 
 def canonical_model(name):
@@ -172,8 +181,10 @@ def add_nvidia_dll_dirs():
                 pass
     # add_dll_directory alone does not cover libraries that ctranslate2 loads lazily
     # at compute time, so PATH gets them too. That is the one the loader always reads.
-    if found:
-        os.environ["PATH"] = os.pathsep.join([*found, os.environ.get("PATH", "")])
+    if not found:
+        print("[escuta] sem bibliotecas CUDA instaladas; a transcrição vai usar a CPU.", flush=True)
+        return
+    os.environ["PATH"] = os.pathsep.join([*found, os.environ.get("PATH", "")])
 
     import ctypes
 
@@ -192,7 +203,8 @@ def load_faster(model, device, compute):
     key = (model, device, compute)
     if key not in _faster_models:
         _faster_models.clear()  # ponytail: one model resident at a time, plenty for one user
-        whisper = WhisperModel(model, device=device, compute_type=compute)
+        extra = {"cpu_threads": os.cpu_count() or 4} if device == "cpu" else {}
+        whisper = WhisperModel(model, device=device, compute_type=compute, **extra)
         try:
             from faster_whisper import BatchedInferencePipeline
 
@@ -428,6 +440,7 @@ class Handler(BaseHTTPRequestHandler):
             return {
                 "whisper": whisper_engine() is not None,
                 "whisperEngine": engine_label(),
+                "recommendedModel": recommended_model(),
                 "ollama": models is not None,
                 "ollamaModels": models or [],
                 "gemini": bool(GEMINI_KEY),
@@ -471,6 +484,7 @@ def selfcheck():
     assert canonical_model("") == DEFAULT_WHISPER
     assert canonical_model(None) == DEFAULT_WHISPER
     assert canonical_model("mlx-community/whisper-large-v3-turbo-q4") == "large-v3-turbo-q4"
+    assert recommended_model() in (DEFAULT_WHISPER, CPU_MODEL)
     assert "large-v3-turbo-q4".removesuffix("-q4") == "large-v3-turbo"
     assert MLX_REPOS["small"] == "mlx-community/whisper-small-mlx"
     print("ok")
