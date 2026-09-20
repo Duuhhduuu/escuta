@@ -36,15 +36,19 @@
       <label>
         <span>Modelo Whisper</span>
         <select id="whisperModel">
-          <option value="mlx-community/whisper-large-v3-turbo">Turbo (recomendado)</option>
-          <option value="mlx-community/whisper-small-mlx">Small (mais leve)</option>
-          <option value="mlx-community/whisper-large-v3-mlx">Large v3 (mais lento)</option>
+          <option value="large-v3-turbo">Turbo (recomendado)</option>
+          <option value="small">Small (mais leve)</option>
+          <option value="large-v3">Large v3 (mais lento)</option>
         </select>
       </label>
       <label>
         <span>Modelo de resumo (Ollama)</span>
         <input id="ollamaModel" list="models" spellcheck="false" autocomplete="off" />
         <datalist id="models"></datalist>
+      </label>
+      <label>
+        <span>Token do servidor (opcional)</span>
+        <input id="token" type="password" spellcheck="false" autocomplete="off" placeholder="igual ao ESCUTA_TOKEN do .env" />
       </label>
       <button type="submit" id="save">Salvar ajustes</button>
     </form>

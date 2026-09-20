@@ -2,20 +2,28 @@ const BASE = "http://127.0.0.1:8765";
 
 const DEFAULTS = {
   language: "pt",
-  whisperModel: "mlx-community/whisper-large-v3-turbo",
+  whisperModel: "large-v3-turbo",
   ollamaModel: "qwen2.5:7b",
 };
 
 const getSettings = () => chrome.storage.sync.get(DEFAULTS);
+// Local, not sync: the token guards this machine's server, it should not follow the account around.
+const getToken = async () => (await chrome.storage.local.get("token")).token || "";
 
 const fail = (code, message) => ({ ok: false, code, message });
 
 async function call(path, init, timeoutMs) {
+  const token = await getToken();
   let res;
   try {
-    res = await fetch(BASE + path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    res = await fetch(BASE + path, {
+      ...init,
+      headers: { ...init.headers, ...(token ? { "X-Escuta-Token": token } : {}) },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   } catch (err) {
     if (err.name === "TimeoutError") return fail("timeout", "A transcrição demorou demais.");
+    console.warn("[escuta] fetch falhou:", path, err); // visível no console do service worker
     return fail("server_offline", "Servidor local desligado.");
   }
   const body = await res.json().catch(() => ({}));

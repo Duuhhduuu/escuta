@@ -172,6 +172,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .escuta-working .escuta-wave i { animation: none; }
+  /* Sem movimento, mas ainda com sinal de vida: só a opacidade pulsa. */
+  .escuta-working .escuta-wave i { animation: escuta-fade 1400ms ease-in-out infinite; }
   .escuta-btn { transition: none; }
+}
+
+@keyframes escuta-fade {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }

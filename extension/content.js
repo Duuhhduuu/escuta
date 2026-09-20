@@ -10,10 +10,11 @@
   };
 
   const MESSAGES = {
-    server_offline: "Servidor local desligado. Rode ./start.sh na pasta server.",
-    whisper_missing: "Whisper não instalado. Rode ./setup.sh na pasta server.",
-    ffmpeg_missing: "ffmpeg não encontrado. Rode: brew install ffmpeg",
+    server_offline: "Servidor local desligado. Rode start.bat (ou ./start.sh) na pasta server.",
+    whisper_missing: "Whisper não instalado. Rode setup.bat (ou ./setup.sh) na pasta server.",
+    ffmpeg_missing: "ffmpeg não encontrado. Instale o ffmpeg e tente de novo.",
     ollama_offline: "Ollama não está rodando. Abra o app Ollama.",
+    bad_token: "Token do servidor não confere. Ajuste no ícone da extensão.",
     no_audio: "Não achei o áudio desta mensagem. Toque em reproduzir e tente de novo.",
     audio_timeout: "O áudio não carregou. Tente de novo.",
   };
