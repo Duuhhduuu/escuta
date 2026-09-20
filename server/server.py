@@ -1,36 +1,81 @@
 #!/usr/bin/env python3
 """Local server for the Escuta extension.
 
-POST /transcribe   raw audio body  -> {"text", "language"}   (Whisper via MLX)
-POST /summarize    {"text", ...}   -> {"summary"}            (Ollama)
+POST /transcribe   raw audio body  -> {"text", "language"}   (Whisper)
+POST /summarize    {"text", ...}   -> {"summary"}            (Ollama or Gemini)
 GET  /health                       -> engine status
 
-Binds to 127.0.0.1 only and rejects browser requests that do not come from an
-extension, so other web pages cannot reach it.
+Transcription runs on mlx-whisper (Apple Silicon) or faster-whisper (Windows,
+Linux, CPU/CUDA), whichever is installed. Binds to 127.0.0.1 only and rejects
+browser requests that do not come from an extension.
 """
 import importlib.util
 import json
 import os
+import secrets
+import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+if sys.stdout is None:  # pythonw.exe: sem console, o log vai para disco
+    _log = os.path.join(HERE, "escuta.log")
+    # ponytail: recomeça o arquivo em 1 MB. Rotação de verdade só se isso incomodar.
+    _mode = "w" if os.path.exists(_log) and os.path.getsize(_log) > 1_000_000 else "a"
+    sys.stdout = sys.stderr = open(_log, _mode, encoding="utf-8", buffering=1)
+
+
+def load_env():
+    """Read server/.env here so the server works however it was launched."""
+    try:
+        with open(os.path.join(HERE, ".env"), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                # setdefault: a real environment variable always wins over the file.
+                os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+    except OSError:
+        pass
+
+
+load_env()
+
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("ESCUTA_PORT", "8765"))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-DEFAULT_WHISPER = "mlx-community/whisper-large-v3-turbo"
+DEFAULT_WHISPER = "large-v3-turbo"
 DEFAULT_OLLAMA = "qwen2.5:7b"
 # When GEMINI_API_KEY is set, summaries go to Gemini (cloud). Otherwise they use Ollama (local).
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+# Optional shared secret. When set, every request must carry it in X-Escuta-Token,
+# so other local processes cannot use the server. Same value in the popup.
+TOKEN = os.environ.get("ESCUTA_TOKEN", "").strip()
 MAX_BODY = 50 * 1024 * 1024
+BATCH_SIZE = int(os.environ.get("ESCUTA_BATCH", "16"))  # VRAM vs speed; 16 fits comfortably in 8 GB
 
-# One Whisper job at a time: the model is big and MLX shares the GPU.
+# mlx repo names are not uniform, so they are listed instead of built from the model name.
+MLX_REPOS = {
+    "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
+    "small": "mlx-community/whisper-small-mlx",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
+}
+
+SETUP_HINT = "Rode setup.ps1 (Windows) ou ./setup.sh (Mac/Linux) na pasta server."
+
+# One Whisper job at a time: the model is big and shares the GPU.
 whisper_lock = threading.Lock()
+_faster_models = {}  # (name, device, compute) -> WhisperModel, loading it costs seconds
+_cuda_broken = False  # set once CUDA fails at runtime, so we stop paying for the retry
 
 SUMMARY_PROMPT = (
     "Você resume mensagens de voz transcritas do WhatsApp. "
@@ -47,8 +92,186 @@ class ApiError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
-def whisper_available():
-    return importlib.util.find_spec("mlx_whisper") is not None
+def installed(name):
+    return importlib.util.find_spec(name) is not None
+
+
+def whisper_engine():
+    """Which backend this machine can use, or None when nothing is installed."""
+    if installed("mlx_whisper"):
+        return "mlx"
+    if installed("faster_whisper"):
+        return "faster"
+    return None
+
+
+def cuda_available():
+    if _cuda_broken:
+        return False
+    try:
+        import ctranslate2
+
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+def engine_label():
+    engine = whisper_engine()
+    if engine == "mlx":
+        return "mlx-whisper"
+    if engine == "faster":
+        return f"faster-whisper · {'CUDA' if cuda_available() else 'CPU'}"
+    return ""
+
+
+def canonical_model(name):
+    """Accept plain names and old mlx repo ids alike: 'large-v3-turbo'."""
+    name = (name or DEFAULT_WHISPER).strip()
+    if name.startswith("mlx-community/whisper-"):
+        name = name[len("mlx-community/whisper-") :]
+    if name.endswith("-mlx"):
+        name = name[: -len("-mlx")]
+    return name or DEFAULT_WHISPER
+
+
+def transcribe_mlx(path, model, language):
+    import mlx_whisper
+
+    result = mlx_whisper.transcribe(
+        path,
+        path_or_hf_repo=MLX_REPOS.get(model, model),
+        language=language,
+    )
+    return result["text"].strip(), result.get("language")
+
+
+_dll_dirs = []  # add_dll_directory undoes itself when the handle is collected: keep them alive
+
+
+def add_nvidia_dll_dirs():
+    """On Windows the cuBLAS/cuDNN DLLs ship inside the pip packages, not on PATH."""
+    if os.name != "nt":
+        return
+    import pathlib
+    import site
+
+    roots = [*site.getsitepackages(), os.path.join(sys.prefix, "Lib", "site-packages")]
+    found = []
+    for base in dict.fromkeys(roots):
+        for sub in pathlib.Path(base).glob("nvidia/*/bin"):
+            found.append(str(sub))
+            try:
+                _dll_dirs.append(os.add_dll_directory(str(sub)))
+            except OSError:
+                pass
+    # add_dll_directory alone does not cover libraries that ctranslate2 loads lazily
+    # at compute time, so PATH gets them too. That is the one the loader always reads.
+    if found:
+        os.environ["PATH"] = os.pathsep.join([*found, os.environ.get("PATH", "")])
+
+    import ctypes
+
+    for dll in ("cublas64_12.dll", "cudnn64_9.dll"):
+        try:
+            ctypes.WinDLL(dll)
+        except OSError:
+            print(f"[escuta] AVISO: {dll} não carrega; a transcrição vai usar a CPU.", flush=True)
+            return
+    print(f"[escuta] CUDA pronto ({len(found)} pasta(s) de DLL).", flush=True)
+
+
+def load_faster(model, device, compute):
+    from faster_whisper import WhisperModel
+
+    key = (model, device, compute)
+    if key not in _faster_models:
+        _faster_models.clear()  # ponytail: one model resident at a time, plenty for one user
+        whisper = WhisperModel(model, device=device, compute_type=compute)
+        try:
+            from faster_whisper import BatchedInferencePipeline
+
+            # ~4x faster than the sequential path on a GPU, same text. Needs faster-whisper 1.1+.
+            _faster_models[key] = (BatchedInferencePipeline(model=whisper), True)
+        except ImportError:
+            _faster_models[key] = (whisper, False)
+    return _faster_models[key]
+
+
+def faster_device():
+    forced = os.environ.get("ESCUTA_DEVICE")
+    device = forced or ("cuda" if (not _cuda_broken and cuda_available()) else "cpu")
+    compute = os.environ.get("ESCUTA_COMPUTE") or ("float16" if device == "cuda" else "int8")
+    return forced, device, compute
+
+
+def run_faster(loaded, path, language):
+    engine, batched = loaded
+    if batched:
+        segments, info = engine.transcribe(path, language=language, batch_size=BATCH_SIZE)
+    else:
+        segments, info = engine.transcribe(path, language=language, vad_filter=True)
+    # The generator must be drained here: that is where the GPU work actually happens.
+    return "".join(seg.text for seg in segments).strip(), info.language
+
+
+def transcribe_faster(path, model, language):
+    global _cuda_broken
+    forced, device, compute = faster_device()
+    try:
+        return run_faster(load_faster(model, device, compute), path, language)
+    except Exception as exc:
+        # A CUDA driver can be visible while cuBLAS/cuDNN are missing, and that only
+        # surfaces once the model computes. Redo it on the CPU instead of failing.
+        if device != "cuda" or forced:
+            raise
+        print(f"[escuta] CUDA falhou ({exc}); refazendo na CPU.", flush=True)
+        _cuda_broken = True
+        _faster_models.clear()
+        return run_faster(load_faster(model, "cpu", "int8"), path, language)
+
+
+def preload():
+    """Pay the model load at boot, not on the first voice note."""
+    if whisper_engine() != "faster" or os.environ.get("ESCUTA_PRELOAD") == "0":
+        return
+    try:
+        _, device, compute = faster_device()
+        start = time.monotonic()
+        load_faster(DEFAULT_WHISPER, device, compute)
+        print(f"[escuta] modelo {DEFAULT_WHISPER} pronto em {time.monotonic() - start:.1f}s ({device}).", flush=True)
+    except Exception as exc:
+        print(f"[escuta] modelo não pré-carregado ({exc}); será carregado na primeira transcrição.", flush=True)
+
+
+def transcribe(audio, model, language):
+    engine = whisper_engine()
+    if engine is None:
+        raise ApiError(503, "whisper_missing", f"Whisper não está instalado. {SETUP_HINT}")
+    model = canonical_model(model)
+    language = None if language == "auto" else language
+
+    start = time.monotonic()
+    # delete=False + unlink: Windows cannot reopen a NamedTemporaryFile by path while it is open.
+    tmp = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
+    try:
+        tmp.write(audio)
+        tmp.close()
+        with whisper_lock:
+            try:
+                if engine == "mlx":
+                    text, lang = transcribe_mlx(tmp.name, model, language)
+                else:
+                    text, lang = transcribe_faster(tmp.name, model, language)
+            except FileNotFoundError as exc:
+                raise ApiError(500, "ffmpeg_missing", "ffmpeg não encontrado. Instale o ffmpeg e tente de novo.") from exc
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+    print(f"[escuta] transcrito em {time.monotonic() - start:.1f}s ({len(text)} caracteres).", flush=True)
+    return {"text": text, "language": lang}
 
 
 def ollama_models():
@@ -57,26 +280,6 @@ def ollama_models():
             return [m["name"] for m in json.load(res).get("models", [])]
     except (urllib.error.URLError, TimeoutError, ValueError, OSError):
         return None
-
-
-def transcribe(audio, model, language):
-    if not whisper_available():
-        raise ApiError(503, "whisper_missing", "mlx-whisper não está instalado. Rode ./setup.sh.")
-    import mlx_whisper
-
-    with tempfile.NamedTemporaryFile(suffix=".ogg") as tmp:
-        tmp.write(audio)
-        tmp.flush()
-        with whisper_lock:
-            try:
-                result = mlx_whisper.transcribe(
-                    tmp.name,
-                    path_or_hf_repo=model,
-                    language=None if language == "auto" else language,
-                )
-            except FileNotFoundError as exc:
-                raise ApiError(500, "ffmpeg_missing", "ffmpeg não encontrado. Rode: brew install ffmpeg") from exc
-    return {"text": result["text"].strip(), "language": result.get("language")}
 
 
 def summarize(text, model):
@@ -135,7 +338,7 @@ def summarize_gemini(text):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Escuta/1.0"
+    server_version = "Escuta/1.1"
 
     def log_message(self, fmt, *args):
         print(f"[escuta] {self.address_string()} {fmt % args}", flush=True)
@@ -144,6 +347,11 @@ class Handler(BaseHTTPRequestHandler):
     def _origin_ok(self):
         origin = self.headers.get("Origin")
         return origin is None or origin.startswith(("chrome-extension://", "moz-extension://"))
+
+    def _token_ok(self):
+        if not TOKEN:
+            return True
+        return secrets.compare_digest(self.headers.get("X-Escuta-Token") or "", TOKEN)
 
     def _send(self, status, payload):
         data = json.dumps(payload, ensure_ascii=False).encode()
@@ -168,6 +376,8 @@ class Handler(BaseHTTPRequestHandler):
     def _guard(self, fn):
         if not self._origin_ok():
             return self._send(403, {"code": "forbidden", "message": "Origem não permitida."})
+        if not self._token_ok():
+            return self._send(403, {"code": "bad_token", "message": "Token do servidor não confere."})
         try:
             self._send(200, fn())
         except ApiError as err:
@@ -182,8 +392,10 @@ class Handler(BaseHTTPRequestHandler):
         if origin and self._origin_ok():
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Escuta-Token")
+            # Private Network Access (old name) and Local Network Access (Chrome's replacement).
             self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Access-Control-Allow-Local-Network-Access", "true")
         self.end_headers()
 
     def do_GET(self):
@@ -193,10 +405,13 @@ class Handler(BaseHTTPRequestHandler):
         def health():
             models = ollama_models()
             return {
-                "whisper": whisper_available(),
+                "whisper": whisper_engine() is not None,
+                "whisperEngine": engine_label(),
                 "ollama": models is not None,
                 "ollamaModels": models or [],
                 "gemini": bool(GEMINI_KEY),
+                "geminiModel": GEMINI_MODEL if GEMINI_KEY else "",
+                "token": bool(TOKEN),
             }
 
         self._guard(health)
@@ -227,9 +442,30 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"code": "not_found", "message": "Rota não existe."})
 
 
+def selfcheck():
+    assert canonical_model("mlx-community/whisper-large-v3-turbo") == "large-v3-turbo"
+    assert canonical_model("mlx-community/whisper-small-mlx") == "small"
+    assert canonical_model("mlx-community/whisper-large-v3-mlx") == "large-v3"
+    assert canonical_model("large-v3-turbo") == "large-v3-turbo"
+    assert canonical_model("") == DEFAULT_WHISPER
+    assert canonical_model(None) == DEFAULT_WHISPER
+    assert MLX_REPOS["small"] == "mlx-community/whisper-small-mlx"
+    print("ok")
+
+
 if __name__ == "__main__":
+    add_nvidia_dll_dirs()
+    if "--selfcheck" in sys.argv:
+        selfcheck()
+        raise SystemExit(0)
+    threading.Thread(target=preload, daemon=True).start()
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"[escuta] ouvindo em http://{HOST}:{PORT}", flush=True)
+    summarizer = f"gemini ({GEMINI_MODEL})" if GEMINI_KEY else "ollama"
+    print(
+        f"[escuta] ouvindo em http://{HOST}:{PORT} · whisper: {engine_label() or 'não instalado'}"
+        f" · resumo: {summarizer} · token: {'sim' if TOKEN else 'não'}",
+        flush=True,
+    )
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
