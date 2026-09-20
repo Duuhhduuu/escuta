@@ -398,8 +398,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, fn())
         except ApiError as err:
             self._send(err.status, {"code": err.code, "message": err.message})
+        except ConnectionError:
+            pass  # o cliente desistiu antes da resposta; não há para onde responder
         except Exception as exc:  # keep the server alive on unexpected failures
-            self._send(500, {"code": "internal", "message": str(exc)})
+            try:
+                self._send(500, {"code": "internal", "message": str(exc)})
+            except ConnectionError:
+                pass
 
     # -- routes ----------------------------------------------------------
     def do_OPTIONS(self):
@@ -471,13 +476,24 @@ def selfcheck():
     print("ok")
 
 
+class Server(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # Um cliente que fecha a conexão no meio é rotina (aba fechada, timeout).
+        # Sem isso, cada um desses despeja um traceback inteiro no log.
+        exc = sys.exception()
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            print(f"[escuta] cliente desconectou: {type(exc).__name__}", flush=True)
+            return
+        super().handle_error(request, client_address)
+
+
 if __name__ == "__main__":
     add_nvidia_dll_dirs()
     if "--selfcheck" in sys.argv:
         selfcheck()
         raise SystemExit(0)
     threading.Thread(target=preload, daemon=True).start()
-    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    httpd = Server((HOST, PORT), Handler)
     summarizer = f"gemini ({GEMINI_MODEL})" if GEMINI_KEY else "ollama"
     print(
         f"[escuta] ouvindo em http://{HOST}:{PORT} · whisper: {engine_label() or 'não instalado'}"

@@ -11,16 +11,18 @@ Transcrição: **faster-whisper** no Windows/Linux (usa a GPU NVIDIA quando exis
 
 ## Instalação — Windows
 
-1. [Python 3](https://python.org) instalado, com **Add Python to PATH** marcado.
-2. Servidor (uma vez), na pasta `server`, dê dois cliques em **`setup.bat`**.
-3. Ollama para os resumos: baixe em [ollama.com/download](https://ollama.com/download) e rode no terminal:
-   ```
-   ollama pull qwen2.5:7b
-   ```
-   (Ou pule o Ollama e use o Gemini — veja abaixo.)
-4. Extensão: abra `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha a pasta `extension`.
+Precisa do [Python 3](https://python.org) instalado, com **Add Python to PATH** marcado.
 
-Com placa NVIDIA o `setup.bat` instala também o cuBLAS/cuDNN (uns 700 MB) e a transcrição usa CUDA. Essas DLLs vêm pelo pip e não ficam no PATH do Windows; o servidor as registra sozinho no boot. Se mesmo assim a GPU falhar, ele refaz a transcrição na CPU e avisa no log — mais lento, mas não quebra. Para forçar um modo, use `ESCUTA_DEVICE=cpu` ou `cuda` no `.env`.
+Depois, dê dois cliques em **`instalar.bat`** na raiz do projeto. Ele faz tudo:
+
+1. Instala o servidor e, se houver placa NVIDIA, as bibliotecas CUDA
+2. Pergunta sua chave do Gemini para os resumos (pode pular e usar o Ollama)
+3. Configura o servidor para subir sozinho a cada login, sem janela
+4. Liga o servidor e abre a pasta da extensão
+
+Sobra um passo manual, que o Chrome não deixa automatizar: em `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha a pasta `extension`.
+
+Pode rodar o `instalar.bat` de novo quando quiser — ele pula tudo que já estiver instalado.
 
 ## Instalação — Mac / Linux
 
