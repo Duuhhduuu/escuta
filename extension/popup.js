@@ -40,6 +40,7 @@ async function checkHealth() {
   }
 
   const { whisper, whisperEngine, ollama, ollamaModels, gemini, geminiModel, recommendedModel } = res.data;
+  const serverWantsToken = res.data.token;
 
   // Nada salvo ainda: mostra o modelo que o servidor recomenda para este hardware.
   const saved = await chrome.storage.sync.get("whisperModel");
@@ -52,7 +53,12 @@ async function checkHealth() {
   hint.hidden = whisper && summaryReady;
   if (!whisper) hint.textContent = "Rode na pasta server:\nsetup.bat (Windows) ou ./setup.sh";
   else if (!summaryReady) hint.textContent = "Abra o app Ollama ou defina GEMINI_API_KEY para gerar resumos.";
-  else if (recommendedModel === "small") {
+  else if ((await chrome.storage.local.get("token")).token && !serverWantsToken) {
+    // Token preenchido aqui e nenhum no servidor: são dois lados, e sem o do
+    // servidor o campo abaixo não protege nada.
+    hint.textContent = "O token abaixo não está valendo: o servidor não exige nenhum. Ponha ESCUTA_TOKEN no server/.env com o mesmo valor e reinicie o servidor.";
+    hint.hidden = false;
+  } else if (recommendedModel === "small") {
     hint.textContent = "Sem GPU nesta máquina: o modelo Small é umas 2,5x mais rápido que o Turbo aqui.";
     hint.hidden = false;
   }

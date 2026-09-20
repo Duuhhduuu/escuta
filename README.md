@@ -75,9 +75,14 @@ Só o texto já transcrito sai da máquina; o áudio nunca sai. Sem a chave, tud
 
 Por padrão o servidor recusa páginas da web, mas aceita qualquer programa rodando na sua máquina. Para fechar isso:
 
+São **dois lados** e os dois precisam do mesmo valor. Preencher só o campo da extensão não protege nada — o servidor continua aceitando qualquer um.
+
 1. Gere um segredo: `python -c "import secrets;print(secrets.token_urlsafe(24))"`
-2. Ponha em `server/.env` como `ESCUTA_TOKEN=...` e reinicie o servidor.
-3. Cole o mesmo texto no campo **Token do servidor** no ícone da extensão e salve.
+2. Ponha em `server/.env` como `ESCUTA_TOKEN=...`, numa linha só dele.
+3. **Reinicie o servidor.** O `.env` é lido no boot; enquanto não reiniciar, nada muda.
+4. Cole o mesmo texto no campo **Token do servidor** no ícone da extensão e salve.
+
+Se você preencher só o campo da extensão, o popup avisa. Editando o `.env` à mão, confira que cada variável fica na sua própria linha: sem a quebra de linha no fim do arquivo, a linha seguinte gruda na anterior e as duas variáveis se perdem.
 
 Sem `ESCUTA_TOKEN` no `.env`, nada muda e o campo pode ficar vazio.
 
