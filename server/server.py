@@ -66,6 +66,7 @@ BATCH_SIZE = int(os.environ.get("ESCUTA_BATCH", "16"))  # VRAM vs speed; 16 fits
 # mlx repo names are not uniform, so they are listed instead of built from the model name.
 MLX_REPOS = {
     "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
+    "large-v3-turbo-q4": "mlx-community/whisper-large-v3-turbo-q4",
     "small": "mlx-community/whisper-small-mlx",
     "large-v3": "mlx-community/whisper-large-v3-mlx",
 }
@@ -142,6 +143,10 @@ def transcribe_mlx(path, model, language):
         path,
         path_or_hf_repo=MLX_REPOS.get(model, model),
         language=language,
+        # Cada trecho decodifica sozinho. Evita o efeito bola de neve em que um
+        # trecho ruim arrasta os seguintes, que é lento e ainda inventa texto.
+        # É o mesmo que o caminho em lote do faster-whisper já faz no Windows.
+        condition_on_previous_text=False,
     )
     return result["text"].strip(), result.get("language")
 
@@ -217,6 +222,8 @@ def run_faster(loaded, path, language):
 
 def transcribe_faster(path, model, language):
     global _cuda_broken
+    for suffix in ("-q4", "-4bit", "-8bit", "-fp16"):  # quantizações que só existem no mlx
+        model = model.removesuffix(suffix)
     forced, device, compute = faster_device()
     try:
         return run_faster(load_faster(model, device, compute), path, language)
@@ -233,13 +240,22 @@ def transcribe_faster(path, model, language):
 
 def preload():
     """Pay the model load at boot, not on the first voice note."""
-    if whisper_engine() != "faster" or os.environ.get("ESCUTA_PRELOAD") == "0":
+    engine = whisper_engine()
+    if engine is None or os.environ.get("ESCUTA_PRELOAD") == "0":
         return
     try:
-        _, device, compute = faster_device()
         start = time.monotonic()
-        load_faster(DEFAULT_WHISPER, device, compute)
-        print(f"[escuta] modelo {DEFAULT_WHISPER} pronto em {time.monotonic() - start:.1f}s ({device}).", flush=True)
+        if engine == "faster":
+            _, device, compute = faster_device()
+            load_faster(DEFAULT_WHISPER, device, compute)
+            where = device
+        else:
+            import mlx.core as mx
+            from mlx_whisper.transcribe import ModelHolder
+
+            ModelHolder.get_model(MLX_REPOS[DEFAULT_WHISPER], mx.float16)
+            where = "mlx"
+        print(f"[escuta] modelo {DEFAULT_WHISPER} pronto em {time.monotonic() - start:.1f}s ({where}).", flush=True)
     except Exception as exc:
         print(f"[escuta] modelo não pré-carregado ({exc}); será carregado na primeira transcrição.", flush=True)
 
@@ -449,6 +465,8 @@ def selfcheck():
     assert canonical_model("large-v3-turbo") == "large-v3-turbo"
     assert canonical_model("") == DEFAULT_WHISPER
     assert canonical_model(None) == DEFAULT_WHISPER
+    assert canonical_model("mlx-community/whisper-large-v3-turbo-q4") == "large-v3-turbo-q4"
+    assert "large-v3-turbo-q4".removesuffix("-q4") == "large-v3-turbo"
     assert MLX_REPOS["small"] == "mlx-community/whisper-small-mlx"
     print("ok")
 
