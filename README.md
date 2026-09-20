@@ -9,9 +9,29 @@ WhatsApp Web ── extensão ──> servidor local (127.0.0.1:8765) ──> Wh
 
 Transcrição: **faster-whisper** no Windows/Linux (usa a GPU NVIDIA quando existe, senão CPU) e **mlx-whisper** no Mac com Apple Silicon. O `setup` escolhe sozinho.
 
+## Baixar
+
+**Sem git (mais simples):** abra <https://github.com/Duuhhduuu/escuta>, clique no botão verde **Code** e depois em **Download ZIP**. Extraia o ZIP e mova a pasta de dentro para um lugar fixo, por exemplo `C:\escuta`. O `instalar.bat` tem que ficar na raiz dessa pasta:
+
+```
+C:\escuta\
+  instalar.bat      <- este aqui
+  README.md
+  extension\
+  server\
+```
+
+Evite deixar em `Downloads` ou na área de trabalho: o servidor roda dali toda vez que você liga o PC, então mover a pasta depois quebra o atalho de inicialização (é só rodar o `instalar.bat` de novo no lugar novo).
+
+**Com git:**
+
+```bash
+git clone https://github.com/Duuhhduuu/escuta.git
+```
+
 ## Instalação — Windows
 
-Precisa do [Python 3](https://python.org) instalado, com **Add Python to PATH** marcado.
+Precisa do [Python 3](https://python.org) instalado, com **Add Python to PATH** marcado. Na hora de instalar o Python, marque a caixa **Add python.exe to PATH** no primeiro passo — sem isso o `instalar.bat` não acha o Python.
 
 Depois, dê dois cliques em **`instalar.bat`** na raiz do projeto. Ele faz tudo:
 
