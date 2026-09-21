@@ -9,9 +9,12 @@
   --mark-soft: #fff4d6;
   --danger: #b42318;
 
-  display: block;
+  /* Flex container em vez de bloco: assim o conteudo alinha sozinho, e o
+     flex-basis de 100% garante uma linha so nossa quando a linha da mensagem
+     tambem e flex (senao o bloco vira uma coluna ao lado do audio). */
+  display: flex;
+  flex: 1 0 100%;
   box-sizing: border-box;
-  width: min(calc(100% - 24px), 380px);
   margin: 6px 12px 8px;
   font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
@@ -28,8 +31,13 @@
   --danger: #ff8a7a;
 }
 
+/* O cartao nao acompanha a largura da linha: fica no tamanho de leitura. */
+.escuta > * {
+  width: min(100%, 380px);
+}
+
 .escuta--out {
-  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .escuta *,

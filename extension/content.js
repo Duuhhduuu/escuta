@@ -200,6 +200,9 @@
     if (!root) {
       root = h("div", "escuta");
       if (id.startsWith("true_")) root.classList.add("escuta--out");
+      // Linha de mensagem em flex sem wrap empurra nosso bloco para o lado do
+      // audio. Permitir a quebra e o que faz ele cair embaixo, como deve.
+      if (getComputedStyle(row).display.includes("flex")) row.style.flexWrap = "wrap";
       row.append(root);
     }
     renderInto(root, id, row);
