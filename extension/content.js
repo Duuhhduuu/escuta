@@ -7,6 +7,7 @@
     pauseIcon: '[data-icon="audio-pause"], [data-icon*="pause"]',
     playLabel: '[aria-label*="Reproduzir" i], [aria-label*="Play" i], [aria-label*="voz" i], [aria-label*="voice" i]',
     message: "[data-id]",
+    outgoing: ".message-out",
   };
 
   const MESSAGES = {
@@ -21,6 +22,20 @@
 
   // Per-message state survives WhatsApp re-rendering its virtualized list.
   const states = new Map();
+
+  // O data-id sozinho nao basta: o prefixo "true_" some quando o WhatsApp muda o
+  // formato, e ai a mensagem enviada fica alinhada a esquerda. Tres sinais, do
+  // mais barato ao mais teimoso, e o ultimo e geometria pura.
+  function isOutgoing(row, id) {
+    if (id.startsWith("true_")) return true;
+    if (row.matches(SEL.outgoing) || row.querySelector(SEL.outgoing)) return true;
+    const icon = row.querySelector(SEL.voiceIcon);
+    if (!icon) return false;
+    const box = row.getBoundingClientRect();
+    const bubble = icon.getBoundingClientRect();
+    if (box.width <= 0) return false;
+    return bubble.left - box.left > box.right - bubble.right;
+  }
 
   const h = (tag, cls, text) => {
     const el = document.createElement(tag);
@@ -199,7 +214,7 @@
     let root = row.querySelector(":scope > .escuta");
     if (!root) {
       root = h("div", "escuta");
-      if (id.startsWith("true_")) root.classList.add("escuta--out");
+      if (isOutgoing(row, id)) root.classList.add("escuta--out");
       // Linha de mensagem em flex sem wrap empurra nosso bloco para o lado do
       // audio. Permitir a quebra e o que faz ele cair embaixo, como deve.
       if (getComputedStyle(row).display.includes("flex")) row.style.flexWrap = "wrap";
