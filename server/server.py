@@ -15,10 +15,10 @@ import os
 import secrets
 import sys
 import tempfile
-import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -74,8 +74,10 @@ MLX_REPOS = {
 
 SETUP_HINT = "Rode setup.ps1 (Windows) ou ./setup.sh (Mac/Linux) na pasta server."
 
-# One Whisper job at a time: the model is big and shares the GPU.
-whisper_lock = threading.Lock()
+# One Whisper job at a time, always on the same thread: the model is big and shares
+# the GPU, and mlx 0.30+ ties its streams to the thread that created them. A model
+# loaded on one thread fails on another with "There is no Stream(gpu, N)".
+whisper_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
 _faster_models = {}  # (name, device, compute) -> WhisperModel, loading it costs seconds
 _cuda_broken = False  # set once CUDA fails at runtime, so we stop paying for the retry
 
@@ -262,10 +264,14 @@ def preload():
             load_faster(DEFAULT_WHISPER, device, compute)
             where = device
         else:
-            import mlx.core as mx
-            from mlx_whisper.transcribe import ModelHolder
+            import mlx_whisper
+            import numpy as np
 
-            ModelHolder.get_model(MLX_REPOS[DEFAULT_WHISPER], mx.float16)
+            # Um segundo de silêncio carrega o modelo e compila os kernels do Metal,
+            # que senão custam ~0,3s no primeiro áudio de verdade.
+            mlx_whisper.transcribe(
+                np.zeros(16000, np.float32), path_or_hf_repo=MLX_REPOS[DEFAULT_WHISPER], language="pt"
+            )
             where = "mlx"
         print(f"[escuta] modelo {DEFAULT_WHISPER} pronto em {time.monotonic() - start:.1f}s ({where}).", flush=True)
     except Exception as exc:
@@ -285,13 +291,10 @@ def transcribe(audio, model, language):
     try:
         tmp.write(audio)
         tmp.close()
-        with whisper_lock:
-            try:
-                if engine == "mlx":
-                    text, lang = transcribe_mlx(tmp.name, model, language)
-                else:
-                    text, lang = transcribe_faster(tmp.name, model, language)
-            except FileNotFoundError as exc:
+        run = transcribe_mlx if engine == "mlx" else transcribe_faster
+        try:
+            text, lang = whisper_worker.submit(run, tmp.name, model, language).result()
+        except FileNotFoundError as exc:
                 raise ApiError(500, "ffmpeg_missing", "ffmpeg não encontrado. Instale o ffmpeg e tente de novo.") from exc
     finally:
         try:
@@ -506,7 +509,7 @@ if __name__ == "__main__":
     if "--selfcheck" in sys.argv:
         selfcheck()
         raise SystemExit(0)
-    threading.Thread(target=preload, daemon=True).start()
+    whisper_worker.submit(preload)
     httpd = Server((HOST, PORT), Handler)
     summarizer = f"gemini ({GEMINI_MODEL})" if GEMINI_KEY else "ollama"
     print(
