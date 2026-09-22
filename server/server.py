@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Local server for the Escuta extension.
 
-POST /transcribe   raw audio body  -> {"text", "language"}   (Whisper)
+POST /transcribe   raw audio body  -> {"text", "language", "duration"}   (Whisper)
+     ?stream=1                     -> NDJSON, one {"segment"} per chunk, then {"done", ...}
 POST /summarize    {"text", ...}   -> {"summary"}            (Ollama or Gemini)
 GET  /health                       -> engine status
 
@@ -12,6 +13,7 @@ browser requests that do not come from an extension.
 import importlib.util
 import json
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -24,7 +26,8 @@ from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-if sys.stdout is None:  # pythonw.exe: sem console, o log vai para disco
+# pythonw.exe (Windows) não tem console; o launchd (Mac) pede ESCUTA_LOG=1. Nos dois o log vai para disco.
+if sys.stdout is None or os.environ.get("ESCUTA_LOG") == "1":
     _log = os.path.join(HERE, "escuta.log")
     # ponytail: recomeça o arquivo em 1 MB. Rotação de verdade só se isso incomodar.
     _mode = "w" if os.path.exists(_log) and os.path.getsize(_log) > 1_000_000 else "a"
@@ -147,19 +150,40 @@ def canonical_model(name):
     return name or DEFAULT_WHISPER
 
 
-def transcribe_mlx(path, model, language):
+MLX_LINE = re.compile(r"^\[[\d:.]+ --> [\d:.]+\] (.*)$", re.S)
+
+
+def transcribe_mlx(path, model, language, on_segment=None):
     import mlx_whisper
 
-    result = mlx_whisper.transcribe(
-        path,
-        path_or_hf_repo=MLX_REPOS.get(model, model),
-        language=language,
-        # Cada trecho decodifica sozinho. Evita o efeito bola de neve em que um
-        # trecho ruim arrasta os seguintes, que é lento e ainda inventa texto.
-        # É o mesmo que o caminho em lote do faster-whisper já faz no Windows.
-        condition_on_previous_text=False,
-    )
-    return result["text"].strip(), result.get("language")
+    # mlx-whisper só devolve o texto no fim. Com verbose=True ele imprime cada
+    # trecho assim que decodifica, então um print próprio no módulo dele vira o
+    # aviso de progresso. Se o formato mudar numa versão nova, só o texto parcial
+    # some; o resultado final continua vindo.
+    module = sys.modules["mlx_whisper.transcribe"]
+    if on_segment:
+        def hook(*args, **_):
+            match = MLX_LINE.match(" ".join(map(str, args)))
+            if match and match.group(1).strip():
+                on_segment(match.group(1))
+
+        module.print = hook
+    try:
+        result = mlx_whisper.transcribe(
+            path,
+            path_or_hf_repo=MLX_REPOS.get(model, model),
+            language=language,
+            # Cada trecho decodifica sozinho. Evita o efeito bola de neve em que um
+            # trecho ruim arrasta os seguintes, que é lento e ainda inventa texto.
+            # É o mesmo que o caminho em lote do faster-whisper já faz no Windows.
+            condition_on_previous_text=False,
+            verbose=True if on_segment else None,
+        )
+    finally:
+        module.__dict__.pop("print", None)
+    segments = result.get("segments") or []
+    duration = segments[-1]["end"] if segments else 0.0
+    return result["text"].strip(), result.get("language"), duration
 
 
 _dll_dirs = []  # add_dll_directory undoes itself when the handle is collected: keep them alive
@@ -224,23 +248,30 @@ def faster_device():
     return forced, device, compute
 
 
-def run_faster(loaded, path, language):
+def run_faster(loaded, path, language, on_segment=None):
     engine, batched = loaded
     if batched:
         segments, info = engine.transcribe(path, language=language, batch_size=BATCH_SIZE)
     else:
         segments, info = engine.transcribe(path, language=language, vad_filter=True)
     # The generator must be drained here: that is where the GPU work actually happens.
-    return "".join(seg.text for seg in segments).strip(), info.language
+    parts = []
+    for seg in segments:
+        parts.append(seg.text)
+        if on_segment and seg.text.strip():
+            on_segment(seg.text)
+    return "".join(parts).strip(), info.language, info.duration
 
 
-def transcribe_faster(path, model, language):
+def transcribe_faster(path, model, language, on_segment=None):
     global _cuda_broken
     for suffix in ("-q4", "-4bit", "-8bit", "-fp16"):  # quantizações que só existem no mlx
         model = model.removesuffix(suffix)
     forced, device, compute = faster_device()
     try:
-        return run_faster(load_faster(model, device, compute), path, language)
+        return run_faster(load_faster(model, device, compute), path, language, on_segment)
+    except ConnectionError:
+        raise  # o cliente fechou o streaming; não é defeito da CUDA
     except Exception as exc:
         # A CUDA driver can be visible while cuBLAS/cuDNN are missing, and that only
         # surfaces once the model computes. Redo it on the CPU instead of failing.
@@ -249,7 +280,7 @@ def transcribe_faster(path, model, language):
         print(f"[escuta] CUDA falhou ({exc}); refazendo na CPU.", flush=True)
         _cuda_broken = True
         _faster_models.clear()
-        return run_faster(load_faster(model, "cpu", "int8"), path, language)
+        return run_faster(load_faster(model, "cpu", "int8"), path, language, on_segment)
 
 
 def preload():
@@ -278,7 +309,8 @@ def preload():
         print(f"[escuta] modelo não pré-carregado ({exc}); será carregado na primeira transcrição.", flush=True)
 
 
-def transcribe(audio, model, language):
+def transcribe(audio, model, language, on_segment=None):
+    """on_segment(text) recebe cada trecho assim que sai; é chamado na thread do Whisper."""
     engine = whisper_engine()
     if engine is None:
         raise ApiError(503, "whisper_missing", f"Whisper não está instalado. {SETUP_HINT}")
@@ -293,7 +325,7 @@ def transcribe(audio, model, language):
         tmp.close()
         run = transcribe_mlx if engine == "mlx" else transcribe_faster
         try:
-            text, lang = whisper_worker.submit(run, tmp.name, model, language).result()
+            text, lang, duration = whisper_worker.submit(run, tmp.name, model, language, on_segment).result()
         except FileNotFoundError as exc:
             raise ApiError(500, "ffmpeg_missing", "ffmpeg não encontrado. Instale o ffmpeg e tente de novo.") from exc
     finally:
@@ -302,7 +334,7 @@ def transcribe(audio, model, language):
         except OSError:
             pass
     print(f"[escuta] transcrito em {time.monotonic() - start:.1f}s ({len(text)} caracteres).", flush=True)
-    return {"text": text, "language": lang}
+    return {"text": text, "language": lang, "duration": round(duration or 0, 1)}
 
 
 def ollama_models():
@@ -369,7 +401,7 @@ def summarize_gemini(text):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Escuta/1.1"
+    server_version = "Escuta/1.2"
 
     def log_message(self, fmt, *args):
         print(f"[escuta] {self.address_string()} {fmt % args}", flush=True)
@@ -404,11 +436,52 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(413, "too_large", "Áudio maior que 50 MB.")
         return self.rfile.read(length)
 
-    def _guard(self, fn):
+    def _allowed(self):
         if not self._origin_ok():
-            return self._send(403, {"code": "forbidden", "message": "Origem não permitida."})
+            self._send(403, {"code": "forbidden", "message": "Origem não permitida."})
+            return False
         if not self._token_ok():
-            return self._send(403, {"code": "bad_token", "message": "Token do servidor não confere."})
+            self._send(403, {"code": "bad_token", "message": "Token do servidor não confere."})
+            return False
+        return True
+
+    def _stream_transcribe(self, model, language):
+        """NDJSON: uma linha {"segment"} por trecho pronto e, no fim, {"done", "text", ...}
+        ou {"error", "message"}. Erros depois do 200 já enviado só podem ir no corpo."""
+        if not self._allowed():
+            return
+        try:
+            audio = self._read_body()
+        except ApiError as err:
+            return self._send(err.status, {"code": err.code, "message": err.message})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        origin = self.headers.get("Origin")
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.end_headers()  # HTTP/1.0 sem Content-Length: o corpo termina quando a conexão fecha
+
+        def emit(payload):
+            self.wfile.write((json.dumps(payload, ensure_ascii=False) + "\n").encode())
+            self.wfile.flush()
+
+        try:
+            emit({"done": True, **transcribe(audio, model, language, lambda text: emit({"segment": text}))})
+        except ApiError as err:
+            emit({"error": err.code, "message": err.message})
+        except ConnectionError:
+            pass  # a aba fechou no meio; o erro no emit já interrompeu o Whisper
+        except Exception as exc:
+            try:
+                emit({"error": "internal", "message": str(exc)})
+            except ConnectionError:
+                pass
+
+    def _guard(self, fn):
+        if not self._allowed():
+            return
         try:
             self._send(200, fn())
         except ApiError as err:
@@ -459,7 +532,10 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(url.query)
             model = query.get("model", [DEFAULT_WHISPER])[0]
             language = query.get("language", ["pt"])[0]
-            self._guard(lambda: transcribe(self._read_body(), model, language))
+            if query.get("stream") == ["1"]:
+                self._stream_transcribe(model, language)
+            else:
+                self._guard(lambda: transcribe(self._read_body(), model, language))
         elif url.path == "/summarize":
 
             def run():
