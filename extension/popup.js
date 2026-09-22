@@ -2,6 +2,8 @@ const DEFAULTS = {
   language: "pt",
   whisperModel: "large-v3-turbo",
   ollamaModel: "qwen2.5:7b",
+  autoTranscribe: false,
+  autoSummary: true,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -13,7 +15,10 @@ function setStatus(name, state, text) {
 
 async function loadSettings() {
   const saved = await chrome.storage.sync.get(DEFAULTS);
-  for (const key of Object.keys(DEFAULTS)) $(key).value = saved[key];
+  for (const key of Object.keys(DEFAULTS)) {
+    if ($(key).type === "checkbox") $(key).checked = saved[key];
+    else $(key).value = saved[key];
+  }
   $("token").value = (await chrome.storage.local.get("token")).token || "";
 }
 
@@ -70,7 +75,9 @@ async function checkHealth() {
 
 $("form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const values = Object.fromEntries(Object.keys(DEFAULTS).map((key) => [key, $(key).value.trim() || DEFAULTS[key]]));
+  const values = Object.fromEntries(
+    Object.keys(DEFAULTS).map((key) => [key, $(key).type === "checkbox" ? $(key).checked : $(key).value.trim() || DEFAULTS[key]]),
+  );
   await chrome.storage.sync.set(values);
   await chrome.storage.local.set({ token: $("token").value.trim() });
   const button = $("save");

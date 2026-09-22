@@ -23,6 +23,66 @@
   // Per-message state survives WhatsApp re-rendering its virtualized list.
   const states = new Map();
 
+  // Transcrições salvas por data-id: recarregar a página ou voltar à conversa
+  // mostra o texto na hora, sem tocar o áudio nem chamar o servidor de novo.
+  const STORE_PREFIX = "t:";
+  const STORE_MAX = 2000; // ~1 KB cada; o chrome.storage.local aguenta 10 MB
+  const saved = new Map();
+
+  async function loadSaved() {
+    const all = await chrome.storage.local.get(null);
+    for (const [key, value] of Object.entries(all)) {
+      if (key.startsWith(STORE_PREFIX)) saved.set(key.slice(STORE_PREFIX.length), value);
+    }
+  }
+
+  function persist(id) {
+    const { text, duration, summary } = states.get(id);
+    const entry = { text, duration: duration ?? null, summary: summary ?? null, at: Date.now() };
+    saved.set(id, entry);
+    chrome.storage.local.set({ [STORE_PREFIX + id]: entry });
+    if (saved.size <= STORE_MAX) return;
+    // Passou do limite: apaga as 10% mais antigas de uma vez, não uma por uma.
+    const oldest = [...saved].sort((a, b) => a[1].at - b[1].at).slice(0, STORE_MAX / 10);
+    for (const [old] of oldest) saved.delete(old);
+    chrome.storage.local.remove(oldest.map(([old]) => STORE_PREFIX + old));
+  }
+
+  function forget(id) {
+    saved.delete(id);
+    chrome.storage.local.remove(STORE_PREFIX + id);
+  }
+
+  function ensureState(id) {
+    if (!states.has(id)) {
+      const entry = saved.get(id);
+      states.set(
+        id,
+        entry
+          ? { status: "done", text: entry.text, duration: entry.duration, summary: entry.summary, sumStatus: entry.summary ? "done" : null }
+          : { status: "idle" },
+      );
+    }
+    return states.get(id);
+  }
+
+  // Ajustes do popup. Mudou lá, vale aqui na hora, sem recarregar o WhatsApp.
+  const settings = { autoTranscribe: false, autoSummary: true };
+  const LONG_AUDIO_S = 60;
+
+  async function loadSettings() {
+    Object.assign(settings, await chrome.storage.sync.get(settings));
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "sync") return;
+    for (const key of Object.keys(settings)) {
+      if (key in changes && changes[key].newValue !== undefined) settings[key] = changes[key].newValue;
+    }
+  });
+
+  const rowFor = (id) => document.querySelector(`${SEL.message}[data-id="${CSS.escape(id)}"]`);
+
   // O data-id sozinho nao basta: o prefixo "true_" some quando o WhatsApp muda o
   // formato, e ai a mensagem enviada fica alinhada a esquerda. Tres sinais, do
   // mais barato ao mais teimoso, e o ultimo e geometria pura.
@@ -60,10 +120,23 @@
         clearTimeout(timer);
         settle(value);
       };
+      const target = playing ? null : row.querySelector(SEL.playIcon) || row.querySelector(SEL.playLabel);
+      const button = target?.closest('button, [role="button"]') || target;
+      if (!playing && !button) {
+        console.debug("[escuta] play button not found", row.outerHTML.slice(0, 1500));
+        reject({ code: "no_audio" });
+        return;
+      }
+
       const onMessage = (event) => {
         const msg = event.data;
         if (event.source !== window || !msg?.escuta || msg.token !== token) return;
-        if (msg.type === "audio") finish(resolve, msg);
+        // Só aperta o play depois que o page-hook confirma que armou. O postMessage
+        // chega um instante depois; um áudio já carregado (ouvido antes, ou depois
+        // de Fechar) começa a tocar dentro do próprio clique e escapava da captura,
+        // tocando com som e estourando o tempo.
+        if (msg.type === "armed") button?.click();
+        else if (msg.type === "audio") finish(resolve, msg);
         else if (msg.type === "error") finish(reject, { code: "audio_timeout" });
       };
       const timer = setTimeout(() => {
@@ -72,38 +145,66 @@
       }, 25000);
 
       window.addEventListener("message", onMessage);
+      // Já tocando: o page-hook copia direto, sem clique.
       window.postMessage({ escuta: true, type: "arm", token, playing }, location.origin);
-      if (playing) return; // already playing: page-hook grabs it directly
-
-      const target = row.querySelector(SEL.playIcon) || row.querySelector(SEL.playLabel);
-      const button = target?.closest('button, [role="button"]') || target;
-      if (!button) {
-        console.debug("[escuta] play button not found", row.outerHTML.slice(0, 1500));
-        window.postMessage({ escuta: true, type: "disarm" }, location.origin);
-        finish(reject, { code: "no_audio" });
-        return;
-      }
-      button.click();
     });
   }
 
-  async function transcribe(id, row) {
-    const state = states.get(id);
-    state.status = "working";
-    state.error = null;
+  // page-hook.js só captura um áudio por vez. Sem fila, dois cliques seguidos
+  // (ou o automático junto com um clique) disputam o mesmo "armar".
+  let grabbing = Promise.resolve();
+
+  function grabQueued(id) {
+    const run = grabbing.then(() => {
+      const row = rowFor(id); // procura de novo: a linha pode ter sido recriada enquanto esperava
+      if (!row) throw { code: "no_audio" };
+      return grabAudio(row);
+    });
+    grabbing = run.catch(() => {});
+    return run;
+  }
+
+  function requestTranscription(audio, mime, onSegment) {
+    return new Promise((resolve) => {
+      const port = chrome.runtime.connect({ name: "transcribe" });
+      let settled = false;
+      port.onMessage.addListener((msg) => {
+        if (msg.segment != null) return onSegment(msg.segment);
+        settled = true;
+        port.disconnect();
+        resolve(msg);
+      });
+      port.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError;
+        if (!settled) resolve({ ok: false, code: "server_offline", message: "A extensão foi recarregada." });
+      });
+      port.postMessage({ audio, mime });
+    });
+  }
+
+  async function transcribe(id) {
+    const state = ensureState(id);
+    if (state.status === "working") return;
+    Object.assign(state, { status: "working", error: null, text: "", summary: null, sumStatus: null });
     paint(id);
     try {
-      const { b64, mime, duration } = await grabAudio(row);
-      state.duration = duration;
-      const res = await chrome.runtime.sendMessage({ type: "transcribe", audio: b64, mime });
+      const { b64, mime, duration } = await grabQueued(id);
+      state.duration = Number.isFinite(duration) ? duration : null;
+      const res = await requestTranscription(b64, mime, (segment) => {
+        state.text += segment;
+        paint(id);
+      });
       if (!res.ok) throw res;
       state.text = res.data.text || "";
+      state.duration ??= res.data.duration || null;
       state.status = "done";
+      persist(id);
     } catch (err) {
       state.status = "error";
       state.error = errorText(err);
     }
     paint(id);
+    if (state.status === "done" && settings.autoSummary && state.text && state.duration >= LONG_AUDIO_S) summarize(id);
   }
 
   async function summarize(id) {
@@ -115,6 +216,7 @@
     if (res.ok) {
       state.summary = res.data.summary;
       state.sumStatus = "done";
+      persist(id);
     } else {
       state.sumStatus = "error";
       state.sumError = errorText(res);
@@ -141,14 +243,25 @@
     return btn;
   };
 
-  function renderInto(root, id, row) {
+  function renderInto(root, id) {
     const state = states.get(id);
     root.replaceChildren();
 
     if (state.status === "idle") {
-      const btn = action("Transcrever", () => transcribe(id, row), "start");
+      const btn = action("Transcrever", () => transcribe(id), "start");
       btn.prepend(waveform());
       root.append(btn);
+      return;
+    }
+
+    if (state.status === "working" && state.text) {
+      // Áudio longo: o texto aparece trecho a trecho enquanto o resto é transcrito.
+      const card = h("div", "escuta-card");
+      const status = h("div", "escuta-working escuta-working--label");
+      status.setAttribute("role", "status");
+      status.append(waveform(), h("span", null, "Transcrevendo…"));
+      card.append(status, h("p", "escuta-text", state.text.trim()));
+      root.append(card);
       return;
     }
 
@@ -162,7 +275,7 @@
 
     if (state.status === "error") {
       const box = h("div", "escuta-card escuta-card--error");
-      box.append(h("p", "escuta-error", state.error), action("Tentar de novo", () => transcribe(id, row)));
+      box.append(h("p", "escuta-error", state.error), action("Tentar de novo", () => transcribe(id)));
       root.append(box);
       return;
     }
@@ -200,6 +313,7 @@
     bar.append(
       action("Fechar", () => {
         states.delete(id);
+        forget(id);
         paint(id);
       }),
     );
@@ -208,9 +322,9 @@
   }
 
   function paint(id) {
-    const row = document.querySelector(`${SEL.message}[data-id="${CSS.escape(id)}"]`);
+    const row = rowFor(id);
     if (!row) return;
-    if (!states.has(id)) states.set(id, { status: "idle" });
+    ensureState(id);
     let root = row.querySelector(":scope > .escuta");
     if (!root) {
       root = h("div", "escuta");
@@ -220,25 +334,50 @@
       if (getComputedStyle(row).display.includes("flex")) row.style.flexWrap = "wrap";
       row.append(root);
     }
-    renderInto(root, id, row);
+    renderInto(root, id);
   }
 
   // ---- discovery ---------------------------------------------------------
+
+  // O automático só pega o áudio recebido que é a última mensagem da conversa:
+  // um que acabou de chegar, ou o mais recente ao abrir a conversa. Rolar para
+  // cima carrega mensagens antigas acima dela, e essas ficam no botão.
+  const autoTried = new Set();
+
+  function isNewest(row) {
+    const rows = document.querySelectorAll(SEL.message);
+    const last = rows[rows.length - 1];
+    return last === row || row.contains(last);
+  }
+
+  function maybeAuto(id, row) {
+    if (!settings.autoTranscribe || autoTried.has(id)) return;
+    if (states.get(id).status !== "idle" || isOutgoing(row, id) || !isNewest(row)) return;
+    autoTried.add(id);
+    transcribe(id);
+  }
 
   function scan() {
     for (const icon of document.querySelectorAll(SEL.voiceIcon)) {
       const row = icon.closest(SEL.message);
       if (!row || row.querySelector(":scope > .escuta")) continue;
       const id = row.getAttribute("data-id");
-      if (!states.has(id)) states.set(id, { status: "idle" });
+      ensureState(id);
       paint(id);
+      maybeAuto(id, row);
     }
   }
 
-  let pending = 0;
-  new MutationObserver(() => {
-    clearTimeout(pending);
-    pending = setTimeout(scan, 250);
-  }).observe(document.body, { childList: true, subtree: true });
-  scan();
+  function start() {
+    let pending = 0;
+    new MutationObserver(() => {
+      clearTimeout(pending);
+      pending = setTimeout(scan, 250);
+    }).observe(document.body, { childList: true, subtree: true });
+    scan();
+  }
+
+  Promise.all([loadSaved(), loadSettings()])
+    .catch((err) => console.warn("[escuta] ajustes/transcrições salvas não carregaram:", err))
+    .finally(start);
 })();

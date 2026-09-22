@@ -26,23 +26,75 @@ async function resolveModel(chosen) {
   return recommended;
 }
 
-async function call(path, init, timeoutMs) {
+// Response when the server answered, or a fail() when it could not be reached.
+async function send(path, init, timeoutMs, signal) {
   const token = await getToken();
-  let res;
+  const signals = [AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])];
   try {
-    res = await fetch(BASE + path, {
+    return await fetch(BASE + path, {
       ...init,
       headers: { ...init.headers, ...(token ? { "X-Escuta-Token": token } : {}) },
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.any(signals),
     });
   } catch (err) {
-    if (err.name === "TimeoutError") return fail("timeout", "A transcrição demorou demais.");
-    console.warn("[escuta] fetch falhou:", path, err); // visível no console do service worker
-    return fail("server_offline", "Servidor local desligado.");
+    return fetchFailed(path, err);
   }
+}
+
+function fetchFailed(path, err) {
+  if (err.name === "TimeoutError") return fail("timeout", "A transcrição demorou demais.");
+  if (err.name === "AbortError") return fail("aborted", "Cancelado.");
+  console.warn("[escuta] fetch falhou:", path, err); // visível no console do service worker
+  return fail("server_offline", "Servidor local desligado.");
+}
+
+async function parse(res) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) return fail(body.code || "error", body.message || `Erro ${res.status}.`);
   return { ok: true, data: body };
+}
+
+async function call(path, init, timeoutMs) {
+  const res = await send(path, init, timeoutMs);
+  return res instanceof Response ? parse(res) : res;
+}
+
+// Streaming: o servidor manda uma linha JSON por trecho pronto e uma final.
+// Servidor antigo sem ?stream=1 responde JSON comum, e isso também serve.
+async function transcribeStream(msg, onSegment, signal) {
+  const settings = await getSettings();
+  const query = new URLSearchParams({
+    language: settings.language,
+    model: await resolveModel(settings.whisperModel),
+    stream: "1",
+  });
+  const path = `/transcribe?${query}`;
+  const res = await send(path, { method: "POST", body: base64ToBlob(msg.audio, msg.mime) }, 10 * 60_000, signal);
+  if (!(res instanceof Response)) return res;
+  if (!res.ok || !(res.headers.get("Content-Type") || "").includes("ndjson")) return parse(res);
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let newline;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        const item = JSON.parse(line);
+        if (item.segment != null) onSegment(item.segment);
+        else if (item.error) return fail(item.error, item.message);
+        else if (item.done) return { ok: true, data: item };
+      }
+    }
+  } catch (err) {
+    return fetchFailed(path, err);
+  }
+  return fail("error", "O servidor parou no meio da transcrição.");
 }
 
 function base64ToBlob(b64, type) {
@@ -65,15 +117,6 @@ async function withKeepAlive(job) {
 async function handle(msg) {
   const settings = await getSettings();
   switch (msg.type) {
-    case "transcribe": {
-      const query = new URLSearchParams({
-        language: settings.language,
-        model: await resolveModel(settings.whisperModel),
-      });
-      return withKeepAlive(() =>
-        call(`/transcribe?${query}`, { method: "POST", body: base64ToBlob(msg.audio, msg.mime) }, 10 * 60_000),
-      );
-    }
     case "summarize":
       return withKeepAlive(() =>
         call(
@@ -92,6 +135,25 @@ async function handle(msg) {
       return fail("unknown", "Mensagem desconhecida.");
   }
 }
+
+// Transcrição vai por porta, não por sendMessage: a porta leva os trechos
+// parciais até a aba enquanto o Whisper ainda trabalha.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "transcribe") return;
+  const abort = new AbortController();
+  let open = true;
+  const post = (payload) => {
+    if (open) port.postMessage(payload);
+  };
+  port.onDisconnect.addListener(() => {
+    open = false;
+    abort.abort(); // aba fechada ou recarregada: o servidor para de gastar GPU com ela
+  });
+  port.onMessage.addListener(async (msg) => {
+    const res = await withKeepAlive(() => transcribeStream(msg, (segment) => post({ segment }), abort.signal));
+    post(res);
+  });
+});
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   handle(msg).then(sendResponse);

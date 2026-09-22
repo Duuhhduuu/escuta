@@ -51,7 +51,19 @@ Pode rodar o `instalar.bat` de novo quando quiser — ele pula tudo que já esti
    cd server && ./setup.sh
    ```
 2. Ollama: `brew install --cask ollama` e `ollama pull qwen2.5:7b`.
-3. Extensão: igual ao passo 4 acima.
+3. Extensão: em `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha a pasta `extension`.
+
+## Subir sozinho no login (Mac)
+
+```bash
+cd server && ./autostart.sh
+```
+
+Cria um LaunchAgent (`~/Library/LaunchAgents/com.escuta.server.plist`): o servidor sobe a cada login, sem Terminal aberto, e volta sozinho se cair. O log vai para `server/escuta.log`.
+
+- Reiniciar depois de mudar o `.env`: `launchctl kickstart -k gui/$(id -u)/com.escuta.server`
+- Desfazer: `./autostart.sh --remover`
+- Com o autostart ligado, não rode o `start.sh` junto: os dois querem a porta 8765.
 
 ### Firefox
 
@@ -102,6 +114,15 @@ O servidor pré-carrega o modelo no boot e segura ~2 GB de VRAM enquanto está l
 2. Abra o WhatsApp Web. Cada mensagem de voz ganha um botão **Transcrever**.
 3. Depois da transcrição, use **Resumir** ou **Copiar**.
 
+Em áudio longo o texto aparece aos poucos, trecho a trecho, enquanto o resto ainda é transcrito.
+
+As transcrições (e os resumos) ficam salvas no navegador. Recarregar o WhatsApp ou voltar a uma conversa mostra o texto na hora, sem transcrever de novo. **Fechar** apaga a transcrição salva daquela mensagem.
+
+No ícone da extensão:
+
+- **Transcrever sozinho o áudio mais recente recebido** (desligado por padrão): quando o último recado da conversa aberta é um áudio recebido, ele é transcrito sem clique. Vale para o que acabou de chegar e para o último ao abrir a conversa; áudios mais antigos continuam no botão. Como a extensão toca o áudio sem som para copiá-lo, ele fica marcado como ouvido.
+- **Resumir sozinho áudios com mais de 1 min** (ligado por padrão): logo depois da transcrição, gera o resumo.
+
 O ícone da extensão mostra o estado do servidor, do Whisper (e qual motor está em uso) e do Ollama, e deixa trocar idioma e modelos.
 
 ## Notas
@@ -114,3 +135,4 @@ O ícone da extensão mostra o estado do servidor, do Whisper (e qual motor est�
 - O servidor só aceita conexões locais e só de extensões do navegador; com `ESCUTA_TOKEN` ele também exige o segredo.
 - Rodando o servidor no WSL: funciona pelo encaminhamento de `localhost` do WSL2, mas sem acesso à GPU por padrão. Rodar nativo no Windows é mais simples.
 - Teste rápido do servidor: `python server\server.py --selfcheck`.
+- Teste completo (sobe o servidor numa porta livre, transcreve de verdade e confere o streaming): `server/.venv/bin/python server/test_server.py` no Mac, `server\.venv\Scripts\python server\test_server.py` no Windows.

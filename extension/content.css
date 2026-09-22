@@ -98,6 +98,18 @@
   font-size: 12px;
 }
 
+/* Rótulo "Transcrevendo…" dentro do cartão, acima do texto parcial. */
+.escuta-working--label {
+  display: flex;
+  margin-bottom: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 600 10px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* Buttons */
 .escuta-btn {
   all: unset;

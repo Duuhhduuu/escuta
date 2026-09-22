@@ -103,6 +103,7 @@
           post({ type: "error", token: msg.token, message: "timeout" });
         }, ARM_MS),
       };
+      post({ type: "armed", token: msg.token });
     }
   });
 })();

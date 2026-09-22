@@ -47,6 +47,14 @@
         <input id="ollamaModel" list="models" spellcheck="false" autocomplete="off" />
         <datalist id="models"></datalist>
       </label>
+      <label class="check">
+        <input id="autoTranscribe" type="checkbox" />
+        <span>Transcrever sozinho o áudio mais recente recebido<small>Toca o áudio sem som, então ele fica marcado como ouvido.</small></span>
+      </label>
+      <label class="check">
+        <input id="autoSummary" type="checkbox" />
+        <span>Resumir sozinho áudios com mais de 1 min</span>
+      </label>
       <label>
         <span>Token do servidor (opcional)</span>
         <input id="token" type="password" spellcheck="false" autocomplete="off" placeholder="igual ao ESCUTA_TOKEN do .env" />
