@@ -295,7 +295,7 @@ def transcribe(audio, model, language):
         try:
             text, lang = whisper_worker.submit(run, tmp.name, model, language).result()
         except FileNotFoundError as exc:
-                raise ApiError(500, "ffmpeg_missing", "ffmpeg não encontrado. Instale o ffmpeg e tente de novo.") from exc
+            raise ApiError(500, "ffmpeg_missing", "ffmpeg não encontrado. Instale o ffmpeg e tente de novo.") from exc
     finally:
         try:
             os.unlink(tmp.name)
