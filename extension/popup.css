@@ -133,4 +133,6 @@ button.secondary {
   font-weight: 500;
 }
 
+.search-btn { width: 100%; margin: -4px 0 16px; }
+
 .hint--bad { background: color-mix(in srgb, var(--bad) 12%, transparent); font-family: inherit; }

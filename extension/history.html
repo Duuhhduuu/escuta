@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Escuta · Transcrições</title>
+    <link rel="stylesheet" href="history.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <h1>Transcrições</h1>
+      </div>
+      <div class="filters">
+        <label class="search">
+          <span class="sr-only">Pesquisar</span>
+          <input id="q" type="search" placeholder="Pesquisar no texto, no resumo ou no nome…" autocomplete="off" spellcheck="false" autofocus />
+        </label>
+        <label>
+          <span class="sr-only">Conversa</span>
+          <select id="chat"><option value="">Todas as conversas</option></select>
+        </label>
+      </div>
+      <p id="count" class="count" role="status"></p>
+    </header>
+
+    <main id="list"></main>
+
+    <p id="empty" class="empty" hidden></p>
+
+    <script src="history.js"></script>
+  </body>
+</html>

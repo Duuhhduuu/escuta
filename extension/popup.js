@@ -126,6 +126,11 @@ $("diagnose").addEventListener("click", async () => {
   setTimeout(() => (button.textContent = "Copiar diagnóstico"), 2000);
 });
 
+$("search").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("history.html") });
+  window.close();
+});
+
 loadSettings();
 checkHealth();
 checkPage();

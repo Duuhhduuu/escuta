@@ -101,8 +101,18 @@
   function persist(id) {
     const state = states.get(id);
     if (!state) return; // fechada enquanto o servidor respondia
-    const { text, duration, summary, collapsed } = state;
-    const entry = { text, duration: duration ?? null, summary: summary ?? null, collapsed: Boolean(collapsed), at: Date.now() };
+    const { text, duration, summary, collapsed, chat, who } = state;
+    // "at" é quando foi transcrita: recolher ou resumir depois não muda a ordem na pesquisa.
+    state.at ??= Date.now();
+    const entry = {
+      text,
+      duration: duration ?? null,
+      summary: summary ?? null,
+      collapsed: Boolean(collapsed),
+      chat: chat ?? null,
+      who: who ?? null,
+      at: state.at,
+    };
     saved.set(id, entry);
     safely("não salvou a transcrição", () => chrome.storage.local.set({ [STORE_PREFIX + id]: entry }));
     if (saved.size <= STORE_MAX) return;
@@ -130,6 +140,9 @@
               summary: entry.summary,
               sumStatus: entry.summary ? "done" : null,
               collapsed: Boolean(entry.collapsed),
+              chat: entry.chat,
+              who: entry.who,
+              at: entry.at,
             }
           : { status: "idle" },
       );
@@ -146,6 +159,19 @@
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local") {
+      // Apagada na página de pesquisa: some daqui também, sem recarregar.
+      for (const [key, change] of Object.entries(changes)) {
+        if (!key.startsWith(STORE_PREFIX) || change.newValue !== undefined) continue;
+        const id = key.slice(STORE_PREFIX.length);
+        saved.delete(id);
+        if (states.get(id)?.status === "done") {
+          states.delete(id);
+          paint(id);
+        }
+      }
+      return;
+    }
     if (area !== "sync") return;
     for (const key of Object.keys(settings)) {
       if (key in changes && changes[key].newValue !== undefined) settings[key] = changes[key].newValue;
@@ -168,6 +194,20 @@
     const bubble = icon.getBoundingClientRect();
     if (box.width <= 0) return false;
     return bubble.left - box.left > box.right - bubble.right;
+  }
+
+  // Nome da conversa aberta, no cabeçalho. Melhor esforço: se o WhatsApp mudar,
+  // a transcrição continua salva, só sem esse rótulo na pesquisa.
+  function chatTitle() {
+    const name = document.querySelector("#main header")?.querySelector('span[dir="auto"][title], span[dir="auto"]');
+    return (name?.getAttribute("title") || name?.textContent || "").trim() || null;
+  }
+
+  // Quem mandou: em grupo a mensagem recebida tem um rótulo "Nome:".
+  function senderOf(row, id) {
+    if (isOutgoing(row, id)) return "Você";
+    const label = row.querySelector('[aria-label$=":"]')?.getAttribute("aria-label");
+    return label ? label.slice(0, -1).trim() : null;
   }
 
   const h = (tag, cls, text) => {
@@ -313,6 +353,11 @@
       state.text = res.data.text || "";
       state.duration ??= res.data.duration || null;
       state.status = "done";
+      // Para a página de pesquisa saber de onde veio. A linha pode ter sumido da tela.
+      const row = rowFor(id);
+      state.chat = chatTitle();
+      state.who = row ? senderOf(row, id) : null;
+      state.at = Date.now();
       persist(id);
     } catch (err) {
       if (!current(id, state, run)) return;
