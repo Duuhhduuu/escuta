@@ -95,5 +95,37 @@ $("form").addEventListener("change", (event) => {
   if (event.target.id !== "token") save();
 });
 
+// A aba ativa é o WhatsApp? Sem permissão "tabs" não dá para ler a URL, então
+// pergunta direto ao content script: se ele não responde, não é o WhatsApp.
+async function askPage(type) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab?.id == null ? null : await chrome.tabs.sendMessage(tab.id, { type });
+  } catch {
+    return null;
+  }
+}
+
+async function checkPage() {
+  const res = await askPage("page-status");
+  $("page-hint").hidden = !res?.broken;
+  if (!res) setStatus("page", "", "abra o WhatsApp Web");
+  else if (!res.chat) setStatus("page", "", "abra uma conversa");
+  else if (res.broken) setStatus("page", "bad", "não acho os áudios");
+  else setStatus("page", "ok", res.voice ? `${res.voice} áudio${res.voice > 1 ? "s" : ""} na tela` : "pronto");
+}
+
+$("diagnose").addEventListener("click", async () => {
+  const button = $("diagnose");
+  const res = await askPage("page-diagnose");
+  if (!res) button.textContent = "Abra o WhatsApp Web nesta aba";
+  else {
+    await navigator.clipboard.writeText(JSON.stringify(res, null, 1));
+    button.textContent = "Diagnóstico copiado ✓";
+  }
+  setTimeout(() => (button.textContent = "Copiar diagnóstico"), 2000);
+});
+
 loadSettings();
 checkHealth();
+checkPage();
