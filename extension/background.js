@@ -155,7 +155,24 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+// A aba do WhatsApp avisa quando acha áudio na conversa mas nenhum seletor pega:
+// o "!" no ícone é o sinal de que o WhatsApp mudou o HTML de novo.
+function flagTab(tabId, broken) {
+  if (tabId == null) return;
+  chrome.action.setBadgeText({ tabId, text: broken ? "!" : "" });
+  if (broken) chrome.action.setBadgeBackgroundColor({ tabId, color: "#b42318" });
+  chrome.action.setTitle({
+    tabId,
+    title: broken ? "Escuta: não estou reconhecendo os áudios desta conversa. Clique para ver o diagnóstico." : "Escuta",
+  });
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "selectors") {
+    flagTab(sender.tab?.id, msg.broken);
+    sendResponse({ ok: true });
+    return false;
+  }
   handle(msg).then(sendResponse);
   return true;
 });

@@ -64,6 +64,16 @@
 
   // Depois que a extensão é recarregada ou atualizada, qualquer chrome.* nesta aba
   // lança na hora em vez de rejeitar. Sem isso o erro escapa e a tela fica parada.
+  // Script órfão: a extensão foi recarregada com esta aba aberta. Conforme o
+  // navegador, chrome.runtime vira undefined ou lança "context invalidated".
+  const alive = () => {
+    try {
+      return Boolean(chrome.runtime?.id);
+    } catch {
+      return false;
+    }
+  };
+
   function safely(what, job) {
     try {
       Promise.resolve(job()).catch(warn(what));
@@ -91,8 +101,8 @@
   function persist(id) {
     const state = states.get(id);
     if (!state) return; // fechada enquanto o servidor respondia
-    const { text, duration, summary } = state;
-    const entry = { text, duration: duration ?? null, summary: summary ?? null, at: Date.now() };
+    const { text, duration, summary, collapsed } = state;
+    const entry = { text, duration: duration ?? null, summary: summary ?? null, collapsed: Boolean(collapsed), at: Date.now() };
     saved.set(id, entry);
     safely("não salvou a transcrição", () => chrome.storage.local.set({ [STORE_PREFIX + id]: entry }));
     if (saved.size <= STORE_MAX) return;
@@ -113,7 +123,14 @@
       states.set(
         id,
         entry
-          ? { status: "done", text: entry.text, duration: entry.duration, summary: entry.summary, sumStatus: entry.summary ? "done" : null }
+          ? {
+              status: "done",
+              text: entry.text,
+              duration: entry.duration,
+              summary: entry.summary,
+              sumStatus: entry.summary ? "done" : null,
+              collapsed: Boolean(entry.collapsed),
+            }
           : { status: "idle" },
       );
     }
@@ -168,7 +185,7 @@
   };
 
   const errorText = (res) => {
-    if (/context invalidated/i.test(res?.message || "")) return MESSAGES.context_invalidated;
+    if (!alive() || /context invalidated/i.test(res?.message || "")) return MESSAGES.context_invalidated;
     return MESSAGES[res?.code] || res?.message || "Algo deu errado.";
   };
 
@@ -282,6 +299,8 @@
     Object.assign(state, { run, status: "working", error: null, text: "", summary: null, sumStatus: null });
     paint(id);
     try {
+      // Antes de tocar o áudio: órfão, ele seria marcado como ouvido à toa.
+      if (!alive()) throw { code: "context_invalidated" };
       const { b64, mime, duration } = await grabQueued(id);
       if (!current(id, state, run)) return;
       state.duration = Number.isFinite(duration) ? duration : null;
@@ -312,9 +331,10 @@
     paint(id);
     let res;
     try {
+      if (!alive()) throw { code: "context_invalidated" };
       res = await chrome.runtime.sendMessage({ type: "summarize", text: state.text });
     } catch (err) {
-      res = { ok: false, message: String(err?.message || err) };
+      res = { ok: false, code: err?.code, message: String(err?.message || err) };
     }
     if (states.get(id) !== state) return; // fechada enquanto resumia
     if (res?.ok) {
@@ -380,14 +400,29 @@
     if (state.status === "error") {
       const box = h("div", "escuta-card escuta-card--error");
       const bar = h("div", "escuta-actions");
-      bar.append(action("Tentar de novo", () => transcribe(id), "primary"), action("Fechar", () => cancel(id)));
+      // Órfão, tentar de novo não adianta: só recarregar a página liga a extensão de volta.
+      const retry = alive()
+        ? action("Tentar de novo", () => transcribe(id), "primary")
+        : action("Recarregar o WhatsApp", () => location.reload(), "primary");
+      bar.append(retry, action("Fechar", () => cancel(id)));
       box.append(h("p", "escuta-error", state.error), bar);
       root.append(box);
       return;
     }
 
-    const card = h("div", "escuta-card");
     const label = ["Transcrição", fmtDuration(state.duration)].filter(Boolean).join(" · ");
+
+    // Recolhida: só uma pílula. O texto continua salvo e volta num clique.
+    if (state.collapsed) {
+      const btn = action(`${label}${state.summary ? " · com resumo" : ""}`, () => setCollapsed(id, false), "start");
+      btn.prepend(waveform());
+      btn.title = "Mostrar a transcrição";
+      btn.setAttribute("aria-expanded", "false");
+      root.append(btn);
+      return;
+    }
+
+    const card = h("div", "escuta-card");
     card.append(h("div", "escuta-label", label));
     card.append(h("p", "escuta-text", state.text || "Nenhuma fala reconhecida."));
 
@@ -420,15 +455,40 @@
       });
       bar.append(copy);
     }
-    bar.append(
-      action("Fechar", () => {
+    if (state.text) {
+      const hide = action("Recolher", () => setCollapsed(id, true));
+      hide.setAttribute("aria-expanded", "true");
+      bar.append(hide);
+    }
+    // Apagar pede um segundo clique: a transcrição salva some de vez.
+    const erase = action("Apagar", () => {
+      if (erase.dataset.armed) {
         states.delete(id);
         forget(id);
         paint(id);
-      }),
-    );
+        return;
+      }
+      erase.dataset.armed = "1";
+      erase.textContent = "Apagar mesmo?";
+      erase.classList.add("escuta-btn--danger");
+      setTimeout(() => {
+        if (!erase.isConnected) return;
+        delete erase.dataset.armed;
+        erase.textContent = "Apagar";
+        erase.classList.remove("escuta-btn--danger");
+      }, 3000);
+    });
+    bar.append(erase);
     card.append(bar);
     root.append(card);
+  }
+
+  function setCollapsed(id, collapsed) {
+    const state = states.get(id);
+    if (!state) return;
+    state.collapsed = collapsed;
+    persist(id);
+    paint(id);
   }
 
   function paint(id) {
@@ -475,7 +535,86 @@
       paint(id);
       maybeAuto(id, row);
     }
+    report(health());
   }
+
+  // ---- saúde dos seletores ------------------------------------------------
+
+  // Sinais largos de "tem mensagem de voz aqui", que não dependem dos seletores
+  // finos lá de cima. Achar isso sem nenhuma mensagem reconhecida quer dizer que
+  // o WhatsApp mudou o HTML de novo: em vez de sumir calado, o ícone avisa.
+  const LOOSE = /voice|voz|ptt|áudio|audio/i;
+  const SLIDER =
+    '[role="slider"], input[type="range"], [aria-label*="slider" i], [aria-label*="progress" i], [aria-label*="progresso" i]';
+  const BROKEN_AFTER_MS = 3000; // a conversa carregando passa por estados estranhos
+
+  const nameOf = (el) =>
+    el.tagName.toLowerCase() === "title" ? el.textContent : el.getAttribute("aria-label") || el.getAttribute("data-icon") || "";
+
+  function looseVoiceRows(root) {
+    const rows = new Set();
+    for (const el of root.querySelectorAll("[aria-label], [data-icon], svg title")) {
+      if (!LOOSE.test(nameOf(el))) continue;
+      const row = el.closest(SEL.message) || el.closest('[role="row"]');
+      // Áudio de verdade tem barra de progresso; citação de áudio numa resposta não.
+      if (row?.querySelector(SLIDER)) rows.add(row);
+    }
+    return rows;
+  }
+
+  let brokenSince = 0;
+
+  function health() {
+    const root = document.querySelector("#main");
+    if (!root) return { chat: false, messages: 0, voice: 0, broken: false };
+    const messages = root.querySelectorAll(SEL.message).length;
+    const voice = voiceRows().length;
+    const suspect =
+      (messages === 0 && root.querySelectorAll('[role="row"]').length > 0) || (voice === 0 && looseVoiceRows(root).size > 0);
+    if (!suspect) brokenSince = 0;
+    else if (!brokenSince) {
+      brokenSince = Date.now();
+      setTimeout(scan, BROKEN_AFTER_MS + 100); // confere de novo mesmo sem mudança na página
+    }
+    return { chat: true, messages, voice, broken: Boolean(brokenSince) && Date.now() - brokenSince >= BROKEN_AFTER_MS };
+  }
+
+  let lastBroken = null;
+
+  function report(status) {
+    if (status.broken === lastBroken) return;
+    lastBroken = status.broken;
+    safely("não avisou o ícone", () => chrome.runtime.sendMessage({ type: "selectors", broken: status.broken }));
+  }
+
+  // O que o botão Diagnóstico do popup copia: nomes de ícones e rótulos de botão,
+  // nunca o texto das mensagens. É o que basta para atualizar SEL e ICON.
+  function diagnose() {
+    const root = document.querySelector("#main") || document.body;
+    const icons = [...new Set([...root.querySelectorAll("[data-icon], svg title")].map(nameOf).filter(Boolean))];
+    const labels = [
+      ...new Set(
+        [...root.querySelectorAll("[aria-label]")]
+          .map(nameOf)
+          .filter((l) => /voz|voice|reproduz|play|tocar|paus|áudio|audio|ouvir|slider|progress/i.test(l)),
+      ),
+    ];
+    const anchor = [...looseVoiceRows(root)][0]?.querySelector(SLIDER) || root.querySelector(SEL.voiceLabel);
+    const chain = [];
+    for (let el = anchor; el && el !== root && chain.length < 18; el = el.parentElement) {
+      const attrs = [...el.attributes]
+        .filter((a) => /^(data-|role$|aria-label$)/.test(a.name))
+        .map((a) => `[${a.name}="${a.name === "data-id" ? `${a.value.slice(0, 6)}…` : a.value.slice(0, 40)}"]`);
+      chain.push(el.tagName.toLowerCase() + attrs.join(""));
+    }
+    const { messages, voice, broken } = health();
+    return { version: chrome.runtime.getManifest().version, at: new Date().toISOString(), messages, voice, broken, icons, labels, chain };
+  }
+
+  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (msg.type === "page-status") reply(health());
+    else if (msg.type === "page-diagnose") reply(diagnose());
+  });
 
   function start() {
     let pending = 0;

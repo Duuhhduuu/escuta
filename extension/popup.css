@@ -123,3 +123,14 @@ button {
   cursor: pointer;
 }
 button:hover { filter: brightness(1.08); }
+
+button.secondary {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--signal);
+  font-weight: 500;
+}
+
+.hint--bad { background: color-mix(in srgb, var(--bad) 12%, transparent); font-family: inherit; }

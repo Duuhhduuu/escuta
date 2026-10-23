@@ -118,7 +118,7 @@ O servidor pré-carrega o modelo no boot e segura ~2 GB de VRAM enquanto está l
 
 Em áudio longo o texto aparece aos poucos, trecho a trecho, enquanto o resto ainda é transcrito.
 
-As transcrições (e os resumos) ficam salvas no navegador. Recarregar o WhatsApp ou voltar a uma conversa mostra o texto na hora, sem transcrever de novo. **Fechar** apaga a transcrição salva daquela mensagem.
+As transcrições (e os resumos) ficam salvas no navegador. Recarregar o WhatsApp ou voltar a uma conversa mostra o texto na hora, sem transcrever de novo. **Recolher** esconde o cartão e deixa só uma pílula, que reabre num clique (fica recolhido mesmo depois de recarregar). **Apagar** pede um segundo clique e apaga a transcrição salva daquela mensagem.
 
 No ícone da extensão:
 
@@ -133,7 +133,8 @@ O ícone da extensão mostra o estado do servidor, do Whisper (e qual motor est�
 - Na GPU a transcrição usa inferência em lote (`BatchedInferencePipeline`): cerca de 4x mais rápida que o modo sequencial, mesmo texto. Medido numa RTX 5060 Ti: 4min25s de áudio em 2,8s. Ajuste `ESCUTA_BATCH` no `.env` se a placa tiver pouca VRAM.
 - O log do servidor mostra o tempo de cada transcrição, útil pra saber se está indo na GPU ou na CPU.
 - Para transcrever, a extensão aperta o botão de reproduzir da própria mensagem e pausa em seguida. Isso pode marcar o áudio como ouvido.
-- O WhatsApp muda o HTML de vez em quando. Os seletores ficam no objeto `SEL` no topo de `extension/content.js`.
+- O WhatsApp muda o HTML de vez em quando. Quando a conversa tem áudios e a extensão não reconhece nenhum, o ícone dela ganha um **!** vermelho. No popup, **Copiar diagnóstico** copia os nomes de ícones e rótulos da página (nunca o texto das mensagens), que é o que basta para atualizar os seletores. Eles ficam nos objetos `SEL` e `ICON` no topo de `extension/content.js`.
+- Áudios de até 90 s são transcritos no modo sequencial, mais completo; os mais longos usam o lote, uns 4x mais rápido. Ajuste com `ESCUTA_SEQUENCIAL` no `.env`.
 - O servidor só aceita conexões locais e só de extensões do navegador; com `ESCUTA_TOKEN` ele também exige o segredo.
 - Rodando o servidor no WSL: funciona pelo encaminhamento de `localhost` do WSL2, mas sem acesso à GPU por padrão. Rodar nativo no Windows é mais simples.
 - Teste rápido do servidor: `python server\server.py --selfcheck`.

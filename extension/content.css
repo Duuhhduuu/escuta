@@ -156,6 +156,10 @@
 }
 .escuta-btn--ghost:hover { color: var(--danger); border-color: var(--danger); background: transparent; }
 
+/* Segundo clique de Apagar: deixa claro que agora apaga de verdade. */
+.escuta-btn--danger,
+.escuta-btn--danger:hover { color: var(--danger); border-color: var(--danger); }
+
 /* Transcript slip */
 .escuta-card {
   padding: 12px 14px 10px 16px;

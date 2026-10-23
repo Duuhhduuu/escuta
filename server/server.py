@@ -66,6 +66,10 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 TOKEN = os.environ.get("ESCUTA_TOKEN", "").strip()
 MAX_BODY = 50 * 1024 * 1024
 BATCH_SIZE = int(os.environ.get("ESCUTA_BATCH", "16"))  # VRAM vs speed; 16 fits comfortably in 8 GB
+# Até aqui (segundos) o áudio vai no modo sequencial: num recado real de 1:18 foi o
+# único que pegou uma pergunta de 1 s no começo, e custa só uns 2 s a mais. O lote
+# fica para os longos, onde ele é 4x mais rápido. 0 desliga.
+SEQUENTIAL_S = float(os.environ.get("ESCUTA_SEQUENCIAL", "90"))
 
 # mlx repo names are not uniform, so they are listed instead of built from the model name.
 MLX_REPOS = {
@@ -263,10 +267,14 @@ def gave_up(segments):
 
 
 def run_faster(loaded, path, language, on_segment=None):
+    from faster_whisper import decode_audio
+
     engine, batched = loaded
-    if batched:
+    # Decodifica uma vez só: a duração escolhe o modo, e os dois aceitam o array pronto.
+    audio = decode_audio(path)
+    if batched and len(audio) / 16000 > SEQUENTIAL_S:
         segments, info = engine.transcribe(
-            path,
+            audio,
             language=language,
             batch_size=BATCH_SIZE,
             without_timestamps=False,
@@ -278,10 +286,12 @@ def run_faster(loaded, path, language, on_segment=None):
         if gave_up(segments):
             print("[escuta] lote perdeu um trecho; refazendo no modo sequencial.", flush=True)
             segments, info = engine.model.transcribe(
-                path, language=language, vad_filter=True, condition_on_previous_text=False
+                audio, language=language, vad_filter=True, condition_on_previous_text=False
             )
     else:
-        segments, info = engine.transcribe(path, language=language, vad_filter=True)
+        # Áudio curto, ou faster-whisper antigo sem lote: sequencial, trecho a trecho.
+        whisper = engine.model if batched else engine
+        segments, info = whisper.transcribe(audio, language=language, vad_filter=True)
     # The generator must be drained here: that is where the GPU work actually happens.
     parts = []
     for seg in segments:
