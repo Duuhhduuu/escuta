@@ -1,14 +1,53 @@
 (() => {
   // WhatsApp Web changes its markup often. Everything that depends on it lives in this block.
+  // Em out/2026 o WhatsApp trocou data-icon="..." por <svg><title>nome</title> e tirou
+  // .message-out e o prefixo true_/false_ do data-id. Os seletores antigos ficam
+  // como reserva; os rótulos acessíveis (aria-label) são o que muda menos.
   const SEL = {
     voiceIcon:
       '[data-icon="audio-play"], [data-icon="audio-pause"], [data-icon="audio-download"], [data-icon="ptt-status"]',
+    voiceLabel:
+      '[aria-label*="voice message" i], [aria-label*="voice note" i], [aria-label*="mensagem de voz" i], [aria-label*="mensagem de áudio" i]',
     playIcon: '[data-icon="audio-play"], [data-icon="audio-download"], [data-icon*="play"]',
     pauseIcon: '[data-icon="audio-pause"], [data-icon*="pause"]',
+    // Começa com: "Change playback speed" também contém "play".
+    playButton:
+      'button[aria-label^="play" i], button[aria-label^="reproduzir" i], [role="button"][aria-label^="play" i], [role="button"][aria-label^="reproduzir" i]',
+    pauseButton:
+      'button[aria-label^="pause" i], button[aria-label^="pausar" i], [role="button"][aria-label^="pause" i], [role="button"][aria-label^="pausar" i]',
     playLabel: '[aria-label*="Reproduzir" i], [aria-label*="Play" i], [aria-label*="voz" i], [aria-label*="voice" i]',
     message: "[data-id]",
     outgoing: ".message-out",
   };
+
+  // Nomes que aparecem no <title> dos ícones svg.
+  const ICON = {
+    voice: /^(ic-keyboard-voice|ptt)/,
+    play: /play/,
+    pause: /pause/,
+    download: /download|arrow-downward/,
+    outgoing: /^tail-out$/,
+    incoming: /^tail-in$/,
+  };
+
+  const titled = (root, re) => [...root.querySelectorAll("svg title")].find((t) => re.test(t.textContent))?.closest("svg");
+
+  // Mensagem de voz tem player (play, pause ou baixar). Uma resposta que cita um
+  // áudio também mostra o microfone, mas não tem player, e fica sem botão.
+  const playerIn = (row) =>
+    row.querySelector(`${SEL.playButton}, ${SEL.pauseButton}, ${SEL.voiceIcon}`) ||
+    titled(row, ICON.play) ||
+    titled(row, ICON.pause) ||
+    titled(row, ICON.download);
+
+  function voiceRows() {
+    const root = document.querySelector("#main") || document.body;
+    const hits = [...root.querySelectorAll(`${SEL.voiceIcon}, ${SEL.voiceLabel}`)];
+    for (const t of root.querySelectorAll("svg title")) if (ICON.voice.test(t.textContent)) hits.push(t);
+    const rows = new Set(hits.map((el) => el.closest(SEL.message)));
+    rows.delete(null);
+    return [...rows].filter(playerIn);
+  }
 
   const MESSAGES = {
     server_offline: "Servidor local desligado. Rode start.bat (ou ./start.sh) na pasta server.",
@@ -103,8 +142,10 @@
   // mais barato ao mais teimoso, e o ultimo e geometria pura.
   function isOutgoing(row, id) {
     if (id.startsWith("true_")) return true;
-    if (row.matches(SEL.outgoing) || row.querySelector(SEL.outgoing)) return true;
-    const icon = row.querySelector(SEL.voiceIcon);
+    if (id.startsWith("false_")) return false;
+    if (row.matches(SEL.outgoing) || row.querySelector(SEL.outgoing) || titled(row, ICON.outgoing)) return true;
+    if (titled(row, ICON.incoming)) return false;
+    const icon = playerIn(row);
     if (!icon) return false;
     const box = row.getBoundingClientRect();
     const bubble = icon.getBoundingClientRect();
@@ -135,7 +176,7 @@
   // mutes that playback, copies the audio out, and pauses it; here we arm it and press play.
   function grabAudio(row) {
     const token = crypto.randomUUID();
-    const playing = Boolean(row.querySelector(SEL.pauseIcon));
+    const playing = Boolean(row.querySelector(`${SEL.pauseButton}, ${SEL.pauseIcon}`) || titled(row, ICON.pause));
 
     return new Promise((resolve, reject) => {
       const finish = (settle, value) => {
@@ -143,7 +184,13 @@
         clearTimeout(timer);
         settle(value);
       };
-      const target = playing ? null : row.querySelector(SEL.playIcon) || row.querySelector(SEL.playLabel);
+      const target = playing
+        ? null
+        : row.querySelector(SEL.playButton) ||
+          row.querySelector(SEL.playIcon) ||
+          titled(row, ICON.play) ||
+          titled(row, ICON.download) ||
+          row.querySelector(SEL.playLabel);
       const button = target?.closest('button, [role="button"]') || target;
       if (!playing && !button) {
         console.debug("[escuta] play button not found", row.outerHTML.slice(0, 1500));
@@ -421,9 +468,8 @@
   }
 
   function scan() {
-    for (const icon of document.querySelectorAll(SEL.voiceIcon)) {
-      const row = icon.closest(SEL.message);
-      if (!row || row.querySelector(":scope > .escuta")) continue;
+    for (const row of voiceRows()) {
+      if (row.querySelector(":scope > .escuta")) continue;
       const id = row.getAttribute("data-id");
       ensureState(id);
       paint(id);
