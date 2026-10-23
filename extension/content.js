@@ -64,6 +64,16 @@
 
   // Depois que a extensão é recarregada ou atualizada, qualquer chrome.* nesta aba
   // lança na hora em vez de rejeitar. Sem isso o erro escapa e a tela fica parada.
+  // Script órfão: a extensão foi recarregada com esta aba aberta. Conforme o
+  // navegador, chrome.runtime vira undefined ou lança "context invalidated".
+  const alive = () => {
+    try {
+      return Boolean(chrome.runtime?.id);
+    } catch {
+      return false;
+    }
+  };
+
   function safely(what, job) {
     try {
       Promise.resolve(job()).catch(warn(what));
@@ -175,7 +185,7 @@
   };
 
   const errorText = (res) => {
-    if (/context invalidated/i.test(res?.message || "")) return MESSAGES.context_invalidated;
+    if (!alive() || /context invalidated/i.test(res?.message || "")) return MESSAGES.context_invalidated;
     return MESSAGES[res?.code] || res?.message || "Algo deu errado.";
   };
 
@@ -289,6 +299,8 @@
     Object.assign(state, { run, status: "working", error: null, text: "", summary: null, sumStatus: null });
     paint(id);
     try {
+      // Antes de tocar o áudio: órfão, ele seria marcado como ouvido à toa.
+      if (!alive()) throw { code: "context_invalidated" };
       const { b64, mime, duration } = await grabQueued(id);
       if (!current(id, state, run)) return;
       state.duration = Number.isFinite(duration) ? duration : null;
@@ -319,9 +331,10 @@
     paint(id);
     let res;
     try {
+      if (!alive()) throw { code: "context_invalidated" };
       res = await chrome.runtime.sendMessage({ type: "summarize", text: state.text });
     } catch (err) {
-      res = { ok: false, message: String(err?.message || err) };
+      res = { ok: false, code: err?.code, message: String(err?.message || err) };
     }
     if (states.get(id) !== state) return; // fechada enquanto resumia
     if (res?.ok) {
@@ -387,7 +400,11 @@
     if (state.status === "error") {
       const box = h("div", "escuta-card escuta-card--error");
       const bar = h("div", "escuta-actions");
-      bar.append(action("Tentar de novo", () => transcribe(id), "primary"), action("Fechar", () => cancel(id)));
+      // Órfão, tentar de novo não adianta: só recarregar a página liga a extensão de volta.
+      const retry = alive()
+        ? action("Tentar de novo", () => transcribe(id), "primary")
+        : action("Recarregar o WhatsApp", () => location.reload(), "primary");
+      bar.append(retry, action("Fechar", () => cancel(id)));
       box.append(h("p", "escuta-error", state.error), bar);
       root.append(box);
       return;

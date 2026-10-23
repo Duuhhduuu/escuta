@@ -109,7 +109,7 @@ async function askPage(type) {
 async function checkPage() {
   const res = await askPage("page-status");
   $("page-hint").hidden = !res?.broken;
-  if (!res) setStatus("page", "", "abra o WhatsApp Web");
+  if (!res) setStatus("page", "", "abra o WhatsApp Web (ou dê F5 nele)");
   else if (!res.chat) setStatus("page", "", "abra uma conversa");
   else if (res.broken) setStatus("page", "bad", "não acho os áudios");
   else setStatus("page", "ok", res.voice ? `${res.voice} áudio${res.voice > 1 ? "s" : ""} na tela` : "pronto");
