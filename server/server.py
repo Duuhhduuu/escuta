@@ -248,10 +248,38 @@ def faster_device():
     return forced, device, compute
 
 
+# O lote sem marcação de tempo às vezes desiste no começo de um pedaço de 30 s e
+# devolve uma palavra para 20 s de fala: num áudio real, 56-78 s viraram "Monotur.".
+# Com marcação de tempo e o VAD menos rígido o texto volta inteiro, quase no mesmo tempo.
+BATCH_VAD = {"threshold": 0.35, "min_silence_duration_ms": 500, "speech_pad_ms": 400}
+
+
+def gave_up(segments):
+    """Trecho longo com quase nenhum texto: fala normal fica perto de 0,06 s por caractere."""
+    return any(
+        seg.end - seg.start >= 8 and (seg.end - seg.start) / max(len(seg.text.strip()), 1) > 0.5
+        for seg in segments
+    )
+
+
 def run_faster(loaded, path, language, on_segment=None):
     engine, batched = loaded
     if batched:
-        segments, info = engine.transcribe(path, language=language, batch_size=BATCH_SIZE)
+        segments, info = engine.transcribe(
+            path,
+            language=language,
+            batch_size=BATCH_SIZE,
+            without_timestamps=False,
+            vad_parameters=BATCH_VAD,
+        )
+        # O lote só entrega quando o lote inteiro termina (16 pedaços de 30 s), então
+        # segurar os trechos para conferir antes de mandar não atrasa o texto parcial.
+        segments = list(segments)
+        if gave_up(segments):
+            print("[escuta] lote perdeu um trecho; refazendo no modo sequencial.", flush=True)
+            segments, info = engine.model.transcribe(
+                path, language=language, vad_filter=True, condition_on_previous_text=False
+            )
     else:
         segments, info = engine.transcribe(path, language=language, vad_filter=True)
     # The generator must be drained here: that is where the GPU work actually happens.
@@ -572,6 +600,11 @@ def selfcheck():
     assert recommended_model() in (DEFAULT_WHISPER, CPU_MODEL)
     assert "large-v3-turbo-q4".removesuffix("-q4") == "large-v3-turbo"
     assert MLX_REPOS["small"] == "mlx-community/whisper-small-mlx"
+    from types import SimpleNamespace as Seg
+
+    # O caso real: 22 s viraram uma palavra. Fala normal e trecho curto passam.
+    assert gave_up([Seg(start=27.3, end=56.6, text=" " + "x" * 600), Seg(start=56.6, end=78.4, text=" Monotur.")])
+    assert not gave_up([Seg(start=0.0, end=27.0, text=" " + "x" * 400), Seg(start=27.0, end=28.0, text=" Lula.")])
     print("ok")
 
 
