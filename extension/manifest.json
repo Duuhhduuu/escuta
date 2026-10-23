@@ -3,7 +3,7 @@
   "name": "Escuta",
   "version": "1.2.0",
   "description": "Transcreve e resume mensagens de voz do WhatsApp Web, tudo local na sua máquina.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": ["http://127.0.0.1:8765/*"],
   "background": { "service_worker": "background.js", "scripts": ["background.js"] },
   "browser_specific_settings": {

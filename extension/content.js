@@ -18,7 +18,20 @@
     bad_token: "Token do servidor não confere. Ajuste no ícone da extensão.",
     no_audio: "Não achei o áudio desta mensagem. Toque em reproduzir e tente de novo.",
     audio_timeout: "O áudio não carregou. Tente de novo.",
+    context_invalidated: "A extensão foi atualizada. Recarregue o WhatsApp (F5) e tente de novo.",
   };
+
+  const warn = (what) => (err) => console.warn(`[escuta] ${what}:`, err);
+
+  // Depois que a extensão é recarregada ou atualizada, qualquer chrome.* nesta aba
+  // lança na hora em vez de rejeitar. Sem isso o erro escapa e a tela fica parada.
+  function safely(what, job) {
+    try {
+      Promise.resolve(job()).catch(warn(what));
+    } catch (err) {
+      warn(what)(err);
+    }
+  }
 
   // Per-message state survives WhatsApp re-rendering its virtualized list.
   const states = new Map();
@@ -37,20 +50,22 @@
   }
 
   function persist(id) {
-    const { text, duration, summary } = states.get(id);
+    const state = states.get(id);
+    if (!state) return; // fechada enquanto o servidor respondia
+    const { text, duration, summary } = state;
     const entry = { text, duration: duration ?? null, summary: summary ?? null, at: Date.now() };
     saved.set(id, entry);
-    chrome.storage.local.set({ [STORE_PREFIX + id]: entry });
+    safely("não salvou a transcrição", () => chrome.storage.local.set({ [STORE_PREFIX + id]: entry }));
     if (saved.size <= STORE_MAX) return;
     // Passou do limite: apaga as 10% mais antigas de uma vez, não uma por uma.
     const oldest = [...saved].sort((a, b) => a[1].at - b[1].at).slice(0, STORE_MAX / 10);
     for (const [old] of oldest) saved.delete(old);
-    chrome.storage.local.remove(oldest.map(([old]) => STORE_PREFIX + old));
+    safely("não podou as antigas", () => chrome.storage.local.remove(oldest.map(([old]) => STORE_PREFIX + old)));
   }
 
   function forget(id) {
     saved.delete(id);
-    chrome.storage.local.remove(STORE_PREFIX + id);
+    safely("não apagou a transcrição", () => chrome.storage.local.remove(STORE_PREFIX + id));
   }
 
   function ensureState(id) {
@@ -104,9 +119,17 @@
     return el;
   };
 
-  const fmtDuration = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : "");
+  // Arredonda antes de dividir: 59,6 s vira 1:00, não 0:60.
+  const fmtDuration = (s) => {
+    if (!Number.isFinite(s)) return "";
+    const total = Math.round(s);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  };
 
-  const errorText = (res) => MESSAGES[res.code] || res.message || "Algo deu errado.";
+  const errorText = (res) => {
+    if (/context invalidated/i.test(res?.message || "")) return MESSAGES.context_invalidated;
+    return MESSAGES[res?.code] || res?.message || "Algo deu errado.";
+  };
 
   // WhatsApp only builds the audio after the voice note starts playing. page-hook.js (page world)
   // mutes that playback, copies the audio out, and pauses it; here we arm it and press play.
@@ -164,42 +187,69 @@
     return run;
   }
 
-  function requestTranscription(audio, mime, onSegment) {
+  // Transcrições em andamento, por data-id. Cancelar desconecta a porta, e o
+  // background aborta o fetch: o servidor para de gastar GPU com esse áudio.
+  const jobs = new Map();
+
+  function requestTranscription(id, audio, mime, onSegment) {
     return new Promise((resolve) => {
       const port = chrome.runtime.connect({ name: "transcribe" });
       let settled = false;
+      const settle = (msg) => {
+        if (settled) return;
+        settled = true;
+        jobs.delete(id);
+        resolve(msg);
+      };
+      jobs.set(id, () => {
+        port.disconnect();
+        settle({ ok: false, code: "aborted" });
+      });
       port.onMessage.addListener((msg) => {
         if (msg.segment != null) return onSegment(msg.segment);
-        settled = true;
         port.disconnect();
-        resolve(msg);
+        settle(msg);
       });
       port.onDisconnect.addListener(() => {
         void chrome.runtime.lastError;
-        if (!settled) resolve({ ok: false, code: "server_offline", message: "A extensão foi recarregada." });
+        settle({ ok: false, code: "context_invalidated" });
       });
       port.postMessage({ audio, mime });
     });
   }
 
+  // O resultado de uma execução que a pessoa cancelou ou fechou chega depois e
+  // não pode sobrescrever a tela: cada execução tem um número, e o estado também.
+  const current = (id, state, run) => states.get(id) === state && state.run === run;
+
+  function cancel(id) {
+    jobs.get(id)?.();
+    states.delete(id);
+    paint(id);
+  }
+
   async function transcribe(id) {
     const state = ensureState(id);
     if (state.status === "working") return;
-    Object.assign(state, { status: "working", error: null, text: "", summary: null, sumStatus: null });
+    const run = (state.run || 0) + 1;
+    Object.assign(state, { run, status: "working", error: null, text: "", summary: null, sumStatus: null });
     paint(id);
     try {
       const { b64, mime, duration } = await grabQueued(id);
+      if (!current(id, state, run)) return;
       state.duration = Number.isFinite(duration) ? duration : null;
-      const res = await requestTranscription(b64, mime, (segment) => {
+      const res = await requestTranscription(id, b64, mime, (segment) => {
         state.text += segment;
         paint(id);
       });
+      if (!current(id, state, run)) return;
       if (!res.ok) throw res;
       state.text = res.data.text || "";
       state.duration ??= res.data.duration || null;
       state.status = "done";
       persist(id);
     } catch (err) {
+      if (!current(id, state, run)) return;
       state.status = "error";
       state.error = errorText(err);
     }
@@ -209,17 +259,24 @@
 
   async function summarize(id) {
     const state = states.get(id);
+    if (!state?.text || state.sumStatus === "working") return;
     state.sumStatus = "working";
     state.sumError = null;
     paint(id);
-    const res = await chrome.runtime.sendMessage({ type: "summarize", text: state.text });
-    if (res.ok) {
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: "summarize", text: state.text });
+    } catch (err) {
+      res = { ok: false, message: String(err?.message || err) };
+    }
+    if (states.get(id) !== state) return; // fechada enquanto resumia
+    if (res?.ok) {
       state.summary = res.data.summary;
       state.sumStatus = "done";
       persist(id);
     } else {
       state.sumStatus = "error";
-      state.sumError = errorText(res);
+      state.sumError = errorText(res || { code: "context_invalidated" });
     }
     paint(id);
   }
@@ -259,7 +316,7 @@
       const card = h("div", "escuta-card");
       const status = h("div", "escuta-working escuta-working--label");
       status.setAttribute("role", "status");
-      status.append(waveform(), h("span", null, "Transcrevendo…"));
+      status.append(waveform(), h("span", null, "Transcrevendo…"), action("Cancelar", () => cancel(id), "ghost"));
       card.append(status, h("p", "escuta-text", state.text.trim()));
       root.append(card);
       return;
@@ -268,14 +325,16 @@
     if (state.status === "working") {
       const status = h("div", "escuta-working");
       status.setAttribute("role", "status");
-      status.append(waveform(), h("span", null, "Transcrevendo…"));
+      status.append(waveform(), h("span", null, "Transcrevendo…"), action("Cancelar", () => cancel(id), "ghost"));
       root.append(status);
       return;
     }
 
     if (state.status === "error") {
       const box = h("div", "escuta-card escuta-card--error");
-      box.append(h("p", "escuta-error", state.error), action("Tentar de novo", () => transcribe(id)));
+      const bar = h("div", "escuta-actions");
+      bar.append(action("Tentar de novo", () => transcribe(id), "primary"), action("Fechar", () => cancel(id)));
+      box.append(h("p", "escuta-error", state.error), bar);
       root.append(box);
       return;
     }
@@ -304,8 +363,12 @@
         bar.append(action(state.sumStatus === "error" ? "Tentar resumir de novo" : "Resumir", () => summarize(id), "primary"));
       }
       const copy = action("Copiar", async () => {
-        await navigator.clipboard.writeText(state.summary ? `${state.text}\n\nResumo: ${state.summary}` : state.text);
-        copy.textContent = "Copiado";
+        try {
+          await navigator.clipboard.writeText(state.summary ? `${state.text}\n\nResumo: ${state.summary}` : state.text);
+          copy.textContent = "Copiado ✓";
+        } catch {
+          copy.textContent = "Não copiou";
+        }
         setTimeout(() => (copy.textContent = "Copiar"), 1500);
       });
       bar.append(copy);

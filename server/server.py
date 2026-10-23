@@ -75,7 +75,7 @@ MLX_REPOS = {
     "large-v3": "mlx-community/whisper-large-v3-mlx",
 }
 
-SETUP_HINT = "Rode setup.ps1 (Windows) ou ./setup.sh (Mac/Linux) na pasta server."
+SETUP_HINT = "Rode setup.bat (Windows) ou ./setup.sh (Mac/Linux) na pasta server."
 
 # One Whisper job at a time, always on the same thread: the model is big and shares
 # the GPU, and mlx 0.30+ ties its streams to the thread that created them. A model
@@ -291,8 +291,11 @@ def preload():
     try:
         start = time.monotonic()
         if engine == "faster":
+            # Sem GPU a extensão pede o Small; carregar o Turbo aqui só seria
+            # descartado na primeira transcrição.
+            model = recommended_model()
             _, device, compute = faster_device()
-            load_faster(DEFAULT_WHISPER, device, compute)
+            load_faster(model, device, compute)
             where = device
         else:
             import mlx_whisper
@@ -304,7 +307,7 @@ def preload():
                 np.zeros(16000, np.float32), path_or_hf_repo=MLX_REPOS[DEFAULT_WHISPER], language="pt"
             )
             where = "mlx"
-        print(f"[escuta] modelo {DEFAULT_WHISPER} pronto em {time.monotonic() - start:.1f}s ({where}).", flush=True)
+        print(f"[escuta] modelo {model if engine == 'faster' else DEFAULT_WHISPER} pronto em {time.monotonic() - start:.1f}s ({where}).", flush=True)
     except Exception as exc:
         print(f"[escuta] modelo não pré-carregado ({exc}); será carregado na primeira transcrição.", flush=True)
 
@@ -429,7 +432,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _read_body(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
         if length <= 0:
             raise ApiError(400, "empty_body", "Corpo vazio.")
         if length > MAX_BODY:
@@ -573,7 +579,7 @@ class Server(ThreadingHTTPServer):
     def handle_error(self, request, client_address):
         # Um cliente que fecha a conexão no meio é rotina (aba fechada, timeout).
         # Sem isso, cada um desses despeja um traceback inteiro no log.
-        exc = sys.exception()
+        exc = sys.exc_info()[1]  # sys.exception() só existe no Python 3.11+
         if isinstance(exc, (ConnectionError, TimeoutError)):
             print(f"[escuta] cliente desconectou: {type(exc).__name__}", flush=True)
             return
