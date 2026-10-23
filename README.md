@@ -40,7 +40,9 @@ Depois, dê dois cliques em **`instalar.bat`** na raiz do projeto. Ele faz tudo:
 3. Configura o servidor para subir sozinho a cada login, sem janela
 4. Liga o servidor e abre a pasta da extensão
 
-Sobra um passo manual, que o Chrome não deixa automatizar: em `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha a pasta `extension`.
+Sobra um passo manual, que o Chrome não deixa automatizar: em `chrome://extensions` (no Brave, `brave://extensions`), ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha a pasta `extension`.
+
+Depois de atualizar os arquivos da extensão, clique em ⟳ no card dela em `chrome://extensions` e recarregue o WhatsApp Web (F5).
 
 Pode rodar o `instalar.bat` de novo quando quiser — ele pula tudo que já estiver instalado.
 

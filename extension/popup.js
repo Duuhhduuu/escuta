@@ -23,7 +23,8 @@ async function loadSettings() {
 }
 
 async function checkHealth() {
-  const res = await chrome.runtime.sendMessage({ type: "health" });
+  // O service worker pode responder undefined se acabou de ser reiniciado.
+  const res = (await chrome.runtime.sendMessage({ type: "health" }).catch(() => null)) || { ok: false };
   const hint = $("hint");
 
   if (res.code === "bad_token") {
@@ -73,16 +74,25 @@ async function checkHealth() {
   );
 }
 
-$("form").addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function save() {
   const values = Object.fromEntries(
     Object.keys(DEFAULTS).map((key) => [key, $(key).type === "checkbox" ? $(key).checked : $(key).value.trim() || DEFAULTS[key]]),
   );
   await chrome.storage.sync.set(values);
   await chrome.storage.local.set({ token: $("token").value.trim() });
   const button = $("save");
-  button.textContent = "Salvo";
+  button.textContent = "Salvo ✓";
   setTimeout(() => (button.textContent = "Salvar ajustes"), 1500);
+}
+
+$("form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await save();
+  checkHealth(); // token novo: confere na hora se o servidor aceita
+});
+// Caixas e listas salvam sozinhas: fechar o popup sem clicar em Salvar não perde nada.
+$("form").addEventListener("change", (event) => {
+  if (event.target.id !== "token") save();
 });
 
 loadSettings();

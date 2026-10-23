@@ -1,14 +1,53 @@
 (() => {
   // WhatsApp Web changes its markup often. Everything that depends on it lives in this block.
+  // Em out/2026 o WhatsApp trocou data-icon="..." por <svg><title>nome</title> e tirou
+  // .message-out e o prefixo true_/false_ do data-id. Os seletores antigos ficam
+  // como reserva; os rótulos acessíveis (aria-label) são o que muda menos.
   const SEL = {
     voiceIcon:
       '[data-icon="audio-play"], [data-icon="audio-pause"], [data-icon="audio-download"], [data-icon="ptt-status"]',
+    voiceLabel:
+      '[aria-label*="voice message" i], [aria-label*="voice note" i], [aria-label*="mensagem de voz" i], [aria-label*="mensagem de áudio" i]',
     playIcon: '[data-icon="audio-play"], [data-icon="audio-download"], [data-icon*="play"]',
     pauseIcon: '[data-icon="audio-pause"], [data-icon*="pause"]',
+    // Começa com: "Change playback speed" também contém "play".
+    playButton:
+      'button[aria-label^="play" i], button[aria-label^="reproduzir" i], [role="button"][aria-label^="play" i], [role="button"][aria-label^="reproduzir" i]',
+    pauseButton:
+      'button[aria-label^="pause" i], button[aria-label^="pausar" i], [role="button"][aria-label^="pause" i], [role="button"][aria-label^="pausar" i]',
     playLabel: '[aria-label*="Reproduzir" i], [aria-label*="Play" i], [aria-label*="voz" i], [aria-label*="voice" i]',
     message: "[data-id]",
     outgoing: ".message-out",
   };
+
+  // Nomes que aparecem no <title> dos ícones svg.
+  const ICON = {
+    voice: /^(ic-keyboard-voice|ptt)/,
+    play: /play/,
+    pause: /pause/,
+    download: /download|arrow-downward/,
+    outgoing: /^tail-out$/,
+    incoming: /^tail-in$/,
+  };
+
+  const titled = (root, re) => [...root.querySelectorAll("svg title")].find((t) => re.test(t.textContent))?.closest("svg");
+
+  // Mensagem de voz tem player (play, pause ou baixar). Uma resposta que cita um
+  // áudio também mostra o microfone, mas não tem player, e fica sem botão.
+  const playerIn = (row) =>
+    row.querySelector(`${SEL.playButton}, ${SEL.pauseButton}, ${SEL.voiceIcon}`) ||
+    titled(row, ICON.play) ||
+    titled(row, ICON.pause) ||
+    titled(row, ICON.download);
+
+  function voiceRows() {
+    const root = document.querySelector("#main") || document.body;
+    const hits = [...root.querySelectorAll(`${SEL.voiceIcon}, ${SEL.voiceLabel}`)];
+    for (const t of root.querySelectorAll("svg title")) if (ICON.voice.test(t.textContent)) hits.push(t);
+    const rows = new Set(hits.map((el) => el.closest(SEL.message)));
+    rows.delete(null);
+    return [...rows].filter(playerIn);
+  }
 
   const MESSAGES = {
     server_offline: "Servidor local desligado. Rode start.bat (ou ./start.sh) na pasta server.",
@@ -18,7 +57,20 @@
     bad_token: "Token do servidor não confere. Ajuste no ícone da extensão.",
     no_audio: "Não achei o áudio desta mensagem. Toque em reproduzir e tente de novo.",
     audio_timeout: "O áudio não carregou. Tente de novo.",
+    context_invalidated: "A extensão foi atualizada. Recarregue o WhatsApp (F5) e tente de novo.",
   };
+
+  const warn = (what) => (err) => console.warn(`[escuta] ${what}:`, err);
+
+  // Depois que a extensão é recarregada ou atualizada, qualquer chrome.* nesta aba
+  // lança na hora em vez de rejeitar. Sem isso o erro escapa e a tela fica parada.
+  function safely(what, job) {
+    try {
+      Promise.resolve(job()).catch(warn(what));
+    } catch (err) {
+      warn(what)(err);
+    }
+  }
 
   // Per-message state survives WhatsApp re-rendering its virtualized list.
   const states = new Map();
@@ -37,20 +89,22 @@
   }
 
   function persist(id) {
-    const { text, duration, summary } = states.get(id);
+    const state = states.get(id);
+    if (!state) return; // fechada enquanto o servidor respondia
+    const { text, duration, summary } = state;
     const entry = { text, duration: duration ?? null, summary: summary ?? null, at: Date.now() };
     saved.set(id, entry);
-    chrome.storage.local.set({ [STORE_PREFIX + id]: entry });
+    safely("não salvou a transcrição", () => chrome.storage.local.set({ [STORE_PREFIX + id]: entry }));
     if (saved.size <= STORE_MAX) return;
     // Passou do limite: apaga as 10% mais antigas de uma vez, não uma por uma.
     const oldest = [...saved].sort((a, b) => a[1].at - b[1].at).slice(0, STORE_MAX / 10);
     for (const [old] of oldest) saved.delete(old);
-    chrome.storage.local.remove(oldest.map(([old]) => STORE_PREFIX + old));
+    safely("não podou as antigas", () => chrome.storage.local.remove(oldest.map(([old]) => STORE_PREFIX + old)));
   }
 
   function forget(id) {
     saved.delete(id);
-    chrome.storage.local.remove(STORE_PREFIX + id);
+    safely("não apagou a transcrição", () => chrome.storage.local.remove(STORE_PREFIX + id));
   }
 
   function ensureState(id) {
@@ -88,8 +142,10 @@
   // mais barato ao mais teimoso, e o ultimo e geometria pura.
   function isOutgoing(row, id) {
     if (id.startsWith("true_")) return true;
-    if (row.matches(SEL.outgoing) || row.querySelector(SEL.outgoing)) return true;
-    const icon = row.querySelector(SEL.voiceIcon);
+    if (id.startsWith("false_")) return false;
+    if (row.matches(SEL.outgoing) || row.querySelector(SEL.outgoing) || titled(row, ICON.outgoing)) return true;
+    if (titled(row, ICON.incoming)) return false;
+    const icon = playerIn(row);
     if (!icon) return false;
     const box = row.getBoundingClientRect();
     const bubble = icon.getBoundingClientRect();
@@ -104,15 +160,23 @@
     return el;
   };
 
-  const fmtDuration = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : "");
+  // Arredonda antes de dividir: 59,6 s vira 1:00, não 0:60.
+  const fmtDuration = (s) => {
+    if (!Number.isFinite(s)) return "";
+    const total = Math.round(s);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  };
 
-  const errorText = (res) => MESSAGES[res.code] || res.message || "Algo deu errado.";
+  const errorText = (res) => {
+    if (/context invalidated/i.test(res?.message || "")) return MESSAGES.context_invalidated;
+    return MESSAGES[res?.code] || res?.message || "Algo deu errado.";
+  };
 
   // WhatsApp only builds the audio after the voice note starts playing. page-hook.js (page world)
   // mutes that playback, copies the audio out, and pauses it; here we arm it and press play.
   function grabAudio(row) {
     const token = crypto.randomUUID();
-    const playing = Boolean(row.querySelector(SEL.pauseIcon));
+    const playing = Boolean(row.querySelector(`${SEL.pauseButton}, ${SEL.pauseIcon}`) || titled(row, ICON.pause));
 
     return new Promise((resolve, reject) => {
       const finish = (settle, value) => {
@@ -120,7 +184,13 @@
         clearTimeout(timer);
         settle(value);
       };
-      const target = playing ? null : row.querySelector(SEL.playIcon) || row.querySelector(SEL.playLabel);
+      const target = playing
+        ? null
+        : row.querySelector(SEL.playButton) ||
+          row.querySelector(SEL.playIcon) ||
+          titled(row, ICON.play) ||
+          titled(row, ICON.download) ||
+          row.querySelector(SEL.playLabel);
       const button = target?.closest('button, [role="button"]') || target;
       if (!playing && !button) {
         console.debug("[escuta] play button not found", row.outerHTML.slice(0, 1500));
@@ -164,42 +234,69 @@
     return run;
   }
 
-  function requestTranscription(audio, mime, onSegment) {
+  // Transcrições em andamento, por data-id. Cancelar desconecta a porta, e o
+  // background aborta o fetch: o servidor para de gastar GPU com esse áudio.
+  const jobs = new Map();
+
+  function requestTranscription(id, audio, mime, onSegment) {
     return new Promise((resolve) => {
       const port = chrome.runtime.connect({ name: "transcribe" });
       let settled = false;
+      const settle = (msg) => {
+        if (settled) return;
+        settled = true;
+        jobs.delete(id);
+        resolve(msg);
+      };
+      jobs.set(id, () => {
+        port.disconnect();
+        settle({ ok: false, code: "aborted" });
+      });
       port.onMessage.addListener((msg) => {
         if (msg.segment != null) return onSegment(msg.segment);
-        settled = true;
         port.disconnect();
-        resolve(msg);
+        settle(msg);
       });
       port.onDisconnect.addListener(() => {
         void chrome.runtime.lastError;
-        if (!settled) resolve({ ok: false, code: "server_offline", message: "A extensão foi recarregada." });
+        settle({ ok: false, code: "context_invalidated" });
       });
       port.postMessage({ audio, mime });
     });
   }
 
+  // O resultado de uma execução que a pessoa cancelou ou fechou chega depois e
+  // não pode sobrescrever a tela: cada execução tem um número, e o estado também.
+  const current = (id, state, run) => states.get(id) === state && state.run === run;
+
+  function cancel(id) {
+    jobs.get(id)?.();
+    states.delete(id);
+    paint(id);
+  }
+
   async function transcribe(id) {
     const state = ensureState(id);
     if (state.status === "working") return;
-    Object.assign(state, { status: "working", error: null, text: "", summary: null, sumStatus: null });
+    const run = (state.run || 0) + 1;
+    Object.assign(state, { run, status: "working", error: null, text: "", summary: null, sumStatus: null });
     paint(id);
     try {
       const { b64, mime, duration } = await grabQueued(id);
+      if (!current(id, state, run)) return;
       state.duration = Number.isFinite(duration) ? duration : null;
-      const res = await requestTranscription(b64, mime, (segment) => {
+      const res = await requestTranscription(id, b64, mime, (segment) => {
         state.text += segment;
         paint(id);
       });
+      if (!current(id, state, run)) return;
       if (!res.ok) throw res;
       state.text = res.data.text || "";
       state.duration ??= res.data.duration || null;
       state.status = "done";
       persist(id);
     } catch (err) {
+      if (!current(id, state, run)) return;
       state.status = "error";
       state.error = errorText(err);
     }
@@ -209,17 +306,24 @@
 
   async function summarize(id) {
     const state = states.get(id);
+    if (!state?.text || state.sumStatus === "working") return;
     state.sumStatus = "working";
     state.sumError = null;
     paint(id);
-    const res = await chrome.runtime.sendMessage({ type: "summarize", text: state.text });
-    if (res.ok) {
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: "summarize", text: state.text });
+    } catch (err) {
+      res = { ok: false, message: String(err?.message || err) };
+    }
+    if (states.get(id) !== state) return; // fechada enquanto resumia
+    if (res?.ok) {
       state.summary = res.data.summary;
       state.sumStatus = "done";
       persist(id);
     } else {
       state.sumStatus = "error";
-      state.sumError = errorText(res);
+      state.sumError = errorText(res || { code: "context_invalidated" });
     }
     paint(id);
   }
@@ -259,7 +363,7 @@
       const card = h("div", "escuta-card");
       const status = h("div", "escuta-working escuta-working--label");
       status.setAttribute("role", "status");
-      status.append(waveform(), h("span", null, "Transcrevendo…"));
+      status.append(waveform(), h("span", null, "Transcrevendo…"), action("Cancelar", () => cancel(id), "ghost"));
       card.append(status, h("p", "escuta-text", state.text.trim()));
       root.append(card);
       return;
@@ -268,14 +372,16 @@
     if (state.status === "working") {
       const status = h("div", "escuta-working");
       status.setAttribute("role", "status");
-      status.append(waveform(), h("span", null, "Transcrevendo…"));
+      status.append(waveform(), h("span", null, "Transcrevendo…"), action("Cancelar", () => cancel(id), "ghost"));
       root.append(status);
       return;
     }
 
     if (state.status === "error") {
       const box = h("div", "escuta-card escuta-card--error");
-      box.append(h("p", "escuta-error", state.error), action("Tentar de novo", () => transcribe(id)));
+      const bar = h("div", "escuta-actions");
+      bar.append(action("Tentar de novo", () => transcribe(id), "primary"), action("Fechar", () => cancel(id)));
+      box.append(h("p", "escuta-error", state.error), bar);
       root.append(box);
       return;
     }
@@ -304,8 +410,12 @@
         bar.append(action(state.sumStatus === "error" ? "Tentar resumir de novo" : "Resumir", () => summarize(id), "primary"));
       }
       const copy = action("Copiar", async () => {
-        await navigator.clipboard.writeText(state.summary ? `${state.text}\n\nResumo: ${state.summary}` : state.text);
-        copy.textContent = "Copiado";
+        try {
+          await navigator.clipboard.writeText(state.summary ? `${state.text}\n\nResumo: ${state.summary}` : state.text);
+          copy.textContent = "Copiado ✓";
+        } catch {
+          copy.textContent = "Não copiou";
+        }
         setTimeout(() => (copy.textContent = "Copiar"), 1500);
       });
       bar.append(copy);
@@ -358,9 +468,8 @@
   }
 
   function scan() {
-    for (const icon of document.querySelectorAll(SEL.voiceIcon)) {
-      const row = icon.closest(SEL.message);
-      if (!row || row.querySelector(":scope > .escuta")) continue;
+    for (const row of voiceRows()) {
+      if (row.querySelector(":scope > .escuta")) continue;
       const id = row.getAttribute("data-id");
       ensureState(id);
       paint(id);

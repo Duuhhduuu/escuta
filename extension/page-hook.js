@@ -41,14 +41,16 @@
     armed = null;
   }
 
-  async function capture(el, token) {
+  // mute=false: o áudio já estava tocando porque a pessoa está ouvindo. Só copia,
+  // sem silenciar nem pausar no meio.
+  async function capture(el, token, mute = true) {
     try {
       const blob = await (await fetch(el.currentSrc || el.src)).blob();
       post({ type: "audio", token, b64: await toBase64(blob), mime: blob.type || "audio/ogg", duration: el.duration });
     } catch (err) {
       post({ type: "error", token, message: String(err) });
     } finally {
-      setTimeout(release, RELEASE_MS);
+      if (mute) setTimeout(release, RELEASE_MS);
     }
   }
 
@@ -69,7 +71,9 @@
 
   const nativePlay = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function (...args) {
-    seen.push(new WeakRef(this));
+    // Sem poda a lista cresce a cada play durante horas de WhatsApp aberto.
+    if (seen.length > 50) seen.splice(0, seen.length, ...seen.filter((ref) => ref.deref()?.isConnected).slice(-20));
+    if (!seen.some((ref) => ref.deref() === this)) seen.push(new WeakRef(this));
     if (armed) {
       // Mute before the first sample, even if the source is attached a moment later.
       this.muted = true;
@@ -90,9 +94,7 @@
       disarm();
       const playing = msg.playing && findPlaying();
       if (playing) {
-        playing.muted = true;
-        touched.add(playing);
-        capture(playing, msg.token);
+        capture(playing, msg.token, false);
         return;
       }
       armed = {
