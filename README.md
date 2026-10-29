@@ -6,11 +6,6 @@
 
 Extensão pessoal para o Chrome. Adiciona um botão **Transcrever** em cada mensagem de voz do WhatsApp Web e, depois, **Resumir**. Tudo roda na sua máquina.
 
-```
-WhatsApp Web ── extensão ──> servidor local (127.0.0.1:8765) ──> Whisper (transcrição)
-                                                             └─> Ollama ou Gemini (resumo)
-```
-
 Transcrição: **faster-whisper** no Windows/Linux (usa a GPU NVIDIA quando existe, senão CPU) e **mlx-whisper** no Mac com Apple Silicon. O `setup` escolhe sozinho.
 
 ## Instalação rápida
