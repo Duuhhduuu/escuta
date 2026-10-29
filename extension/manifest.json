@@ -5,7 +5,8 @@
   "description": "Transcreve e resume mensagens de voz do WhatsApp Web, tudo local na sua máquina.",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "tabCapture", "offscreen", "scripting"],
   "web_accessible_resources": [
-    { "resources": ["live.html"], "matches": ["<all_urls>"] }
+    { "resources": ["live.html"], "matches": ["<all_urls>"] },
+    { "resources": ["fonts/*.woff2"], "matches": ["https://web.whatsapp.com/*"] }
   ],
   "host_permissions": ["http://127.0.0.1:8765/*"],
   "background": { "service_worker": "background.js", "scripts": ["rec-db.js", "background.js", "meetings.js"] },

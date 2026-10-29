@@ -1,0 +1,4 @@
+/* Fontes da identidade Escuta, empacotadas (a extensão não carrega fontes de fora). */
+@font-face { font-family: "Bricolage Grotesque"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/BricolageGrotesque.woff2") format("woff2"); }
+@font-face { font-family: "Instrument Sans"; font-weight: 400 600; font-style: normal; font-display: swap; src: url("fonts/InstrumentSans.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; font-style: normal; font-display: swap; src: url("fonts/JetBrainsMono.woff2") format("woff2"); }

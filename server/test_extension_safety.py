@@ -66,8 +66,8 @@ class InjectedScripts(unittest.TestCase):
         manifest = json.loads(read("manifest.json"))
         resources = [r for entry in manifest["web_accessible_resources"] for r in entry["resources"]]
         self.assertIn("live.html", resources)
-        # só o necessário: o resto da extensão não fica exposto às páginas
-        self.assertEqual(resources, ["live.html"])
+        # só o necessário (o painel e as fontes do cartão no WhatsApp): o resto não fica exposto às páginas
+        self.assertEqual(resources, ["live.html", "fonts/*.woff2"])
         for needed in ("scripting", "activeTab", "tabCapture", "offscreen"):
             self.assertIn(needed, manifest["permissions"])
 
