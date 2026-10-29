@@ -229,7 +229,14 @@ $("stop").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "rec-stop-soon" }).catch(() => {});
 });
 
-$("pause").addEventListener("click", () => chrome.runtime.sendMessage({ type: rec?.paused ? "rec-resume" : "rec-pause" }).catch(() => {}));
+$("pause").addEventListener("click", async () => {
+  const res = await chrome.runtime.sendMessage({ type: rec?.paused ? "rec-resume" : "rec-pause" }).catch(() => null);
+  if (res && res.ok === false) {
+    // Falhou: diz o motivo em vez de não fazer nada.
+    $("status").textContent = res.message || "Não consegui pausar.";
+    $("status").classList.add("warn");
+  }
+});
 
 $("tool-min").addEventListener("click", () => askPage("minimize"));
 $("tool-close").addEventListener("click", () => askPage("close"));

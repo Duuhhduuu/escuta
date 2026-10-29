@@ -31,13 +31,17 @@ function setBadge(text, color) {
 
 // ---- documento offscreen ------------------------------------------------------
 
-async function ensureOffscreen() {
+async function ensureOffscreen(source) {
   const open = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
   if (open.length) return;
+  // O Chrome fecha, depois de 30 s sem tocar som, um documento criado com AUDIO_PLAYBACK. Na aba, o
+  // gravador toca o som de volta, então vale. Na chamada do Meet quem toca é a página: o gravador
+  // não toca nada, e com esse motivo ele seria fechado no meio da reunião.
+  const page = source === "page";
   await chrome.offscreen.createDocument({
     url: "recorder.html",
-    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
-    justification: "Gravar o áudio da reunião e manter o som da aba tocando enquanto grava.",
+    reasons: page ? ["USER_MEDIA"] : ["USER_MEDIA", "AUDIO_PLAYBACK"],
+    justification: page ? "Gravar o áudio da chamada do Meet." : "Gravar o áudio da reunião e manter o som da aba tocando enquanto grava.",
   });
 }
 
@@ -135,7 +139,7 @@ async function startMeeting({ streamId, tabId, title, template, mic, source }) {
       : { base: BASE, language: settings.language, model: await resolveModel(settings.whisperModel), token: await getToken() };
   await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY]); // texto e notas da reunião anterior
   try {
-    await ensureOffscreen();
+    await ensureOffscreen(source);
   } catch (err) {
     logRec(`gravador: não preparou (${err.message || err})`);
     return fail("offscreen", `Não consegui preparar o gravador: ${err.message || err}`);
@@ -227,7 +231,10 @@ async function pauseMeeting(pause) {
   if (!rec) return fail("idle", "Nenhuma gravação em andamento.");
   if (Boolean(rec.paused) === pause) return { ok: true, data: {} };
   const res = await toOffscreen({ type: pause ? "pause" : "resume" });
-  if (!res?.ok) return fail("pause", res?.message || "Não consegui pausar.");
+  if (!res?.ok) {
+    logRec(`${pause ? "pausar" : "retomar"} não deu: ${res?.message || "o gravador não respondeu"}`);
+    return fail("pause", res?.message || "O gravador não respondeu. Pare a gravação e comece de novo.");
+  }
   const now = Date.now();
   await setRec({ ...rec, paused: pause, pausedAt: pause ? now : null, pausedMs: (rec.pausedMs || 0) + (pause ? 0 : now - rec.pausedAt) });
   setBadge(pause ? "II" : "REC", pause ? "#c98a00" : "#b42318");
