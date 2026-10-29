@@ -8,7 +8,7 @@
     { "resources": ["live.html"], "matches": ["<all_urls>"] },
     { "resources": ["fonts/*.woff2"], "matches": ["https://web.whatsapp.com/*"] }
   ],
-  "host_permissions": ["http://127.0.0.1:8765/*"],
+  "host_permissions": ["http://127.0.0.1:8765/*", "https://meet.google.com/*"],
   "background": { "service_worker": "background.js", "scripts": ["rec-db.js", "background.js", "meetings.js"] },
   "browser_specific_settings": {
     "gecko": { "id": "escuta@local", "strict_min_version": "128.0" }
@@ -19,6 +19,17 @@
       "js": ["page-hook.js"],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["meet-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["meet-bridge.js"],
+      "run_at": "document_start"
     },
     {
       "matches": ["https://web.whatsapp.com/*"],

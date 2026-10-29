@@ -5,6 +5,7 @@ const DEFAULTS = {
   whisperModel: "large-v3-turbo",
   ollamaModel: "qwen2.5:7b",
   live: true, // transcrição ao vivo durante a reunião
+  autoMeet: false, // gravar sozinho as chamadas do Google Meet (experimental)
 };
 
 const getSettings = () => chrome.storage.sync.get(DEFAULTS);
@@ -173,6 +174,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "selectors") {
     flagTab(sender.tab?.id, msg.broken);
     sendResponse({ ok: true });
+    return false;
+  }
+  if (msg.type === "page-audio") return false; // vai direto ao gravador, não passa por aqui
+  if (msg.type === "meet-call") {
+    meetCall(msg, sender).catch((err) => console.warn("[escuta] meet:", err));
     return false;
   }
   handle(msg).then(sendResponse);

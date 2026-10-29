@@ -161,27 +161,65 @@
   const withTimeout = (promise, ms) =>
     Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("timeout"), { name: "TimeoutError" })), ms))]);
 
-  async function start({ streamId, recId, live, mic: micAllowed }) {
+  // Reunião gravada de dentro da página (Meet): o áudio chega em blocos de PCM de 16 kHz, duas
+  // pistas, e aqui vira dois fluxos como se fossem a aba e o microfone, então o resto da gravação
+  // (arquivo estéreo, texto ao vivo) é o mesmo de sempre.
+  function createPageInput(ctx) {
+    const dest = { voce: ctx.createMediaStreamDestination(), outros: ctx.createMediaStreamDestination() };
+    const next = { voce: 0, outros: 0 };
+    function feed(who, pcm) {
+      const floats = new Float32Array(pcm.length);
+      for (let i = 0; i < pcm.length; i++) floats[i] = pcm[i] / 32768;
+      const buffer = ctx.createBuffer(1, floats.length, 16000);
+      buffer.copyToChannel(floats, 0);
+      const now = ctx.currentTime;
+      if (next[who] < now + 0.05) next[who] = now + 0.3; // folga contra o atraso da mensagem
+      if (next[who] > now + 2) return; // relógios desencontrados: descarta em vez de acumular atraso
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(dest[who]);
+      source.start(next[who]);
+      next[who] += buffer.duration;
+    }
+    return { voce: dest.voce.stream, outros: dest.outros.stream, feed };
+  }
+
+  const fromBase64 = (text) => {
+    const binary = atob(text);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Int16Array(bytes.buffer);
+  };
+
+  async function start({ streamId, recId, live, mic: micAllowed, source }) {
     if (job) throw new Error("Já existe uma gravação em andamento.");
 
-    const tab = await navigator.mediaDevices.getUserMedia({
-      audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
-    });
-
+    let tab;
     let mic = null;
     let micError = null;
-    try {
-      // O popup diz se o microfone já foi liberado. Sem permissão, nem tenta: gravar não espera por ele.
-      if (micAllowed === false) throw Object.assign(new Error("sem permissão"), { name: "NotAllowedError" });
-      mic = await withTimeout(
-        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
-        MIC_WAIT_MS,
-      );
-    } catch (err) {
-      micError = err.name || "erro";
+    let ctx;
+    let pageIn = null;
+    if (source === "page") {
+      ctx = new AudioContext({ sampleRate: 48000 });
+      pageIn = createPageInput(ctx);
+      tab = pageIn.outros;
+      mic = pageIn.voce;
+    } else {
+      tab = await navigator.mediaDevices.getUserMedia({
+        audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
+      });
+      try {
+        // O popup diz se o microfone já foi liberado. Sem permissão, nem tenta: gravar não espera por ele.
+        if (micAllowed === false) throw Object.assign(new Error("sem permissão"), { name: "NotAllowedError" });
+        mic = await withTimeout(
+          navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+          MIC_WAIT_MS,
+        );
+      } catch (err) {
+        micError = err.name || "erro";
+      }
+      ctx = new AudioContext({ sampleRate: 48000 });
     }
-
-    const ctx = new AudioContext({ sampleRate: 48000 });
     // Sem gesto da pessoa neste documento invisível, o navegador pode deixar o áudio suspenso:
     // o arquivo sairia mudo. Acorda explicitamente.
     if (ctx.state !== "running") await ctx.resume().catch(() => {});
@@ -199,7 +237,7 @@
     const micNodes = mic ? toChannel(mic, 0) : null;
     const tabNodes = toChannel(tab, 1);
     // Capturar a aba a deixa muda; tocar de volta mantém o som para quem está na reunião.
-    tabNodes.source.connect(ctx.destination);
+    if (!pageIn) tabNodes.source.connect(ctx.destination); // na página, o Meet já toca o som sozinho
 
     // A prévia ao vivo é um extra: se o captador não carregar, a gravação segue sem ela.
     let stopLive = null;
@@ -220,7 +258,7 @@
     merger.connect(dest);
 
     const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: BITRATE });
-    const state = { recId, recorder, ctx, stopLive, streams: [tab, mic].filter(Boolean), n: 0, writes: Promise.resolve(), writeError: null, startedAt: Date.now(), mic: Boolean(mic) };
+    const state = { recId, recorder, ctx, stopLive, streams: [tab, mic].filter(Boolean), n: 0, writes: Promise.resolve(), writeError: null, startedAt: Date.now(), mic: Boolean(mic), pageIn };
     recorder.ondataavailable = (event) => {
       if (!event.data.size) return;
       const i = state.n++;
@@ -258,6 +296,15 @@
   const fail = (err) => ({ ok: false, message: String(err?.message || err), name: err?.name });
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (msg?.type === "page-audio") {
+      // Áudio do Meet. Sem gravação em andamento, é resto de antes de parar: ignora.
+      const pageIn = job?.pageIn;
+      if (pageIn) {
+        pageIn.feed("voce", fromBase64(msg.voce));
+        pageIn.feed("outros", fromBase64(msg.outros));
+      }
+      return;
+    }
     if (msg?.target !== "offscreen") return; // mensagem para outro contexto: não responde
     if (msg.type === "start") start(msg).then(reply, (err) => reply(fail(err)));
     else if (msg.type === "stop") stop().then(reply, (err) => reply(fail(err)));

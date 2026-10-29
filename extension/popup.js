@@ -256,6 +256,8 @@ $("rec-live-open").addEventListener("click", async () => {
 
 chrome.storage.sync.get({ live: true }).then(({ live }) => ($("live").checked = live));
 $("live").addEventListener("change", () => chrome.storage.sync.set({ live: $("live").checked }));
+chrome.storage.sync.get({ autoMeet: false }).then(({ autoMeet }) => ($("autoMeet").checked = autoMeet));
+$("autoMeet").addEventListener("change", () => chrome.storage.sync.set({ autoMeet: $("autoMeet").checked }));
 
 $("rec-stop").addEventListener("click", async () => {
   $("rec-stop").disabled = true;

@@ -120,7 +120,7 @@ async function showLive(tabId) {
 
 // ---- gravar ---------------------------------------------------------------------
 
-async function startMeeting({ streamId, tabId, title, template, mic }) {
+async function startMeeting({ streamId, tabId, title, template, mic, source }) {
   if (!canRecord()) return fail("unsupported", "Gravar reunião só funciona no Chrome e no Brave.");
   if (await getRec()) return fail("busy", "Já existe uma gravação em andamento.");
 
@@ -140,15 +140,27 @@ async function startMeeting({ streamId, tabId, title, template, mic }) {
     logRec(`gravador: não preparou (${err.message || err})`);
     return fail("offscreen", `Não consegui preparar o gravador: ${err.message || err}`);
   }
-  const res = await toOffscreen({ type: "start", streamId, recId: id, live, mic });
+  const res = await toOffscreen({ type: "start", streamId, recId: id, live, mic, source });
   if (!res?.ok) {
     await closeOffscreen();
     logRec(`gravador: recusou a captura (${res?.name || ""} ${res?.message || "sem resposta"})`);
     return fail("capture", res?.message || "Não consegui capturar o áudio desta aba.");
   }
 
+  if (source === "page") {
+    // O gravador está de pé; agora a página começa a mandar o áudio.
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: "meet-capture", action: "start" });
+    } catch (err) {
+      await toOffscreen({ type: "stop" });
+      await closeOffscreen();
+      logRec(`página do Meet não respondeu (${err.message || err}); recarregue o Meet e tente de novo`);
+      return fail("page", "A página do Meet não respondeu. Recarregue o Meet e tente de novo.");
+    }
+  }
   await setRec({
     state: "recording",
+    source: source || "tab",
     id,
     tabId,
     title: (title || "Reunião").slice(0, 120),
@@ -193,6 +205,7 @@ async function stopMeeting() {
   if (!rec || stopping) return fail("idle", "Nenhuma gravação em andamento.");
   stopping = true;
   try {
+    if (rec.source === "page") await chrome.tabs.sendMessage(rec.tabId, { type: "meet-capture", action: "stop" }).catch(() => {});
     const res = await toOffscreen({ type: "stop" });
     logRec(res?.ok ? `parou: ${Math.round(res.duration)} s gravados, ${res.chunks} pedaços` : `parou com aviso: ${res?.message}`);
     await closeOffscreen();
@@ -415,6 +428,25 @@ async function recoverOrphans(lost = null) {
 chrome.runtime.onStartup.addListener(() => recoverOrphans().catch(() => {}));
 // Também quando o service worker acorda sozinho (extensão recarregada, por exemplo).
 recoverOrphans().catch(() => {});
+
+// Chamada do Meet começou ou terminou (meet-hook.js, na página). Com a gravação automática ligada,
+// começa e termina sozinha; sem ela, nada acontece.
+async function meetCall(msg, sender) {
+  const tabId = sender.tab?.id;
+  if (tabId == null) return;
+  const rec = await getRec();
+  if (msg.state === "started") {
+    if (rec || !canRecord()) return;
+    const { autoMeet, template } = await chrome.storage.sync.get({ autoMeet: false, template: "reuniao" });
+    if (!autoMeet) return;
+    logRec(`chamada do Meet começou na aba ${tabId}: gravando sozinho`);
+    const res = await startMeeting({ source: "page", tabId, title: sender.tab.title || msg.title || "Reunião do Meet", template });
+    if (!res.ok) logRec(`gravação automática não começou: ${res.message}`);
+  } else if (msg.state === "ended" && rec?.source === "page" && rec.tabId === tabId) {
+    logRec("chamada do Meet terminou: parando e gerando a ata");
+    stopMeeting();
+  }
+}
 
 // A aba da reunião fechou: encerra e gera a ata com o que foi gravado.
 chrome.tabs.onRemoved.addListener(async (tabId) => {
