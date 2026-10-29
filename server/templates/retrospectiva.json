@@ -1,44 +1,35 @@
 {
   "name": "Retrospectiva",
-  "description": "O que começar, parar e continuar fazendo.",
+  "description": "Olhar para trás: o que funcionou, o que atrapalhou e o que mudar na próxima etapa.",
   "sections": [
     {
-      "title": "Ciclo",
-      "instruction": "Nome ou número do ciclo (sprint) e o período, se forem ditos",
+      "title": "Período analisado",
+      "instruction": "O ciclo ou período de que a equipe está falando, se for dito",
       "format": "string"
     },
     {
-      "title": "Participantes",
-      "instruction": "Quem participou",
+      "title": "O que funcionou",
+      "instruction": "Os pontos positivos e as práticas que a equipe quer manter",
       "format": "list"
     },
     {
-      "title": "Começar a fazer",
-      "instruction": "Ações ou experimentos para começar no próximo ciclo",
-      "format": "list",
-      "item_format": "| **Ideia** | **Quem propôs** |\n| --- | --- |"
+      "title": "O que atrapalhou",
+      "instruction": "Os problemas, atrasos e frustrações apontados, sem apontar culpados",
+      "format": "list"
     },
     {
-      "title": "Parar de fazer",
-      "instruction": "Práticas para abandonar",
-      "format": "list",
-      "item_format": "| **Prática** | **Motivo** |\n| --- | --- |"
+      "title": "O que vamos tentar",
+      "instruction": "As mudanças e experimentos propostos para o próximo período",
+      "format": "list"
     },
     {
-      "title": "Continuar fazendo",
-      "instruction": "Práticas que funcionam e devem continuar",
-      "format": "list",
-      "item_format": "| **Prática** | **Observações** |\n| --- | --- |"
+      "title": "Ações combinadas",
+      "instruction": "Uma linha por ação: responsável, o que fazer, prazo e horário da fala entre colchetes",
+      "format": "list"
     },
     {
-      "title": "Ações",
-      "instruction": "Experimentos concretos com responsável e como medir o sucesso",
-      "format": "list",
-      "item_format": "| **Responsável** | **Tarefa** | **Prazo** | **Como medir** |\n| --- | --- | --- | --- |"
-    },
-    {
-      "title": "Notas e votos",
-      "instruction": "Resumo da conversa e dos itens mais votados",
+      "title": "Observações",
+      "instruction": "Votações, empates e comentários que mereçam registro e não couberam acima",
       "format": "paragraph"
     }
   ]

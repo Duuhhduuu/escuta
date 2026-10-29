@@ -1,44 +1,31 @@
 {
   "name": "Reunião com cliente",
-  "description": "Objetivos do cliente, entregas combinadas e próximos passos.",
+  "description": "O pedido do cliente, o que foi combinado e o que cada lado faz a seguir.",
   "sections": [
     {
-      "title": "Dados da reunião",
-      "instruction": "Data, horário, formato e responsável pela conta, se forem ditos",
-      "format": "string"
+      "title": "Contexto e pedido",
+      "instruction": "Quem é o cliente, o que ele precisa e por que, em um parágrafo",
+      "format": "paragraph"
     },
     {
-      "title": "Participantes",
-      "instruction": "Pessoas do cliente e da sua equipe, com o papel de cada uma",
+      "title": "O que foi combinado",
+      "instruction": "As entregas e acordos fechados na conversa, um por linha",
       "format": "list"
     },
     {
-      "title": "Objetivos do cliente",
-      "instruction": "O que o cliente quer alcançar e como vai medir o sucesso",
+      "title": "Prazos e valores",
+      "instruction": "Datas, preços, condições de pagamento e limites de escopo que foram ditos. Se nada disso foi falado, diga que não houve",
       "format": "paragraph"
     },
     {
-      "title": "Entregas combinadas",
-      "instruction": "Entregas com responsável e prazo",
-      "format": "list",
-      "item_format": "| **Entrega** | **Responsável** | **Prazo** |\n| --- | --- | --- |"
-    },
-    {
-      "title": "Condições comerciais",
-      "instruction": "Preço, prazos de pagamento, SLAs ou itens de contrato que foram discutidos",
-      "format": "paragraph"
-    },
-    {
-      "title": "Riscos e preocupações",
-      "instruction": "Preocupações do cliente, bloqueios ou itens para escalar",
-      "format": "list",
-      "item_format": "| **Preocupação** | **Impacto** | **Responsável** |\n| --- | --- | --- |"
+      "title": "Dúvidas e preocupações",
+      "instruction": "Objeções, receios e perguntas do cliente que ainda precisam de resposta",
+      "format": "list"
     },
     {
       "title": "Próximos passos",
-      "instruction": "Ações com responsável e prazo",
-      "format": "list",
-      "item_format": "| **Responsável** | **Ação** | **Prazo** |\n| --- | --- | --- |"
+      "instruction": "Uma linha por passo: quem faz (nós ou o cliente), o quê e até quando, com o horário da fala entre colchetes",
+      "format": "list"
     }
   ]
 }

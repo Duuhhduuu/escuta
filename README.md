@@ -215,6 +215,14 @@ Marque **Gravar sozinho as chamadas do Google Meet** no popup. Daí em diante, q
   <img src="docs/img/painel-ata.png" alt="Painel no fim da reunião: a ata está pronta, com duração e número de falas" width="300">
 </p>
 
+### Rever uma reunião
+
+Em **Pesquisar transcrições**, cada reunião é **uma linha só**: o dia, a hora, o assunto (o título que a ata ganhou) e a duração. Clique na linha para abrir a reunião, com a ata e a transcrição em duas abas, as suas notas e as ações (copiar, baixar em `.md`, refazer a ata com outro modelo, apagar). O botão **← Todas as reuniões** volta para a lista.
+
+<p align="center">
+  <img src="docs/img/reunioes-lista.png" alt="Lista de reuniões, uma linha por reunião com dia, assunto e duração" width="46%">&nbsp;&nbsp;<img src="docs/img/reunioes-detalhe.png" alt="Reunião aberta, com a ata e a aba de transcrição" width="46%">
+</p>
+
 ### Como ele sabe quem falou
 
 A extensão grava o áudio da aba e o seu microfone **em canais separados** do mesmo arquivo. O servidor transcreve cada canal sozinho e junta tudo por horário. Assim ele sabe o que foi você e o que foram os outros, sem tentar adivinhar vozes. Sem o microfone liberado, só a pista dos participantes é gravada.
@@ -236,7 +244,7 @@ Ao começar a gravar, um painel aparece ao lado da reunião, com a transcrição
 
 ### Modelos de ata
 
-Reunião padrão, daily, projeto, retrospectiva, cliente e aula, na pasta `server/templates/`. Para criar o seu, copie um `.json` da pasta e mude o que quiser; vale na hora, sem reiniciar. Os cinco primeiros são adaptados do [Meetily](https://github.com/Zackriya-Solutions/meetily) (licença MIT); veja `server/templates/CREDITS.md`.
+Reunião padrão, daily, projeto, retrospectiva, cliente e aula, na pasta `server/templates/`. Para criar o seu, copie um `.json` da pasta e mude o que quiser; vale na hora, sem reiniciar.
 
 ## Configuração
 

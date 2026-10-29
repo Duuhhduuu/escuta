@@ -180,3 +180,44 @@ button.primary { background: var(--acc); border-color: var(--acc); color: var(--
 .actions select.pick { width: auto; padding: 4px 8px; border-radius: 999px; font-size: 12px; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---- lista de reuniões: uma linha por reunião ---- */
+.row {
+  display: grid;
+  grid-template-columns: 84px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: inherit;
+  text-decoration: none;
+}
+.row:hover { border-color: var(--acc); }
+.row:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.when { display: flex; flex-direction: column; gap: 3px; }
+.when b { font: 500 11px/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
+.when i { font: 500 11px/1.2 var(--mono); font-style: normal; color: var(--mute); }
+.what { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.subject { font: 600 15px/1.3 var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { color: var(--mute); font-size: 12.5px; }
+.chev { color: var(--mute); font-size: 22px; line-height: 1; }
+.chip { padding: 3px 10px; border-radius: 999px; font: 500 11px/1.3 var(--mono); }
+.chip--busy { background: var(--acc); color: var(--acc-ink); }
+.chip--bad { border: 1px solid var(--danger); color: var(--danger); }
+
+/* ---- reunião aberta ---- */
+body.detail .filters, body.detail .count { display: none; }
+.detail { display: flex; flex-direction: column; gap: 18px; padding: 4px 0 32px; }
+button.back { align-self: flex-start; padding: 6px 12px; border-color: transparent; color: var(--mute); }
+button.back:hover { color: var(--ink); border-color: var(--line); }
+.d-head h2 { margin: 0 0 6px; font: 700 28px/1.1 var(--display); letter-spacing: -0.04em; }
+.d-meta { margin: 0; color: var(--mute); font-size: 13px; text-transform: capitalize; }
+.d-meta { text-transform: none; }
+.tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
+button.tab { padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--mute); font-size: 13.5px; }
+button.tab[aria-selected="true"] { border-bottom-color: var(--acc); color: var(--ink); font-weight: 600; }
+.pane[hidden] { display: none; }
+.detail .minutes { font: 400 15px/1.65 var(--sans); }
+.detail .transcript { margin-top: 0; max-height: none; border: 0; background: none; padding: 0; }

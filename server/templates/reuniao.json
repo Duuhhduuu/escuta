@@ -1,27 +1,31 @@
 {
   "name": "Reunião padrão",
-  "description": "Resumo, decisões, ações e destaques da conversa.",
+  "description": "O essencial de uma reunião: o assunto, o que foi decidido e quem faz o quê.",
   "sections": [
     {
-      "title": "Resumo",
-      "instruction": "Um parágrafo curto com o resultado da reunião inteira",
+      "title": "Em uma frase",
+      "instruction": "Diga, em uma ou duas frases, do que a reunião tratou e o que saiu dela",
       "format": "paragraph"
     },
     {
-      "title": "Decisões",
-      "instruction": "As decisões mais importantes tomadas na reunião",
+      "title": "Assuntos tratados",
+      "instruction": "Os temas conversados, na ordem em que apareceram, cada um com uma linha sobre o ponto principal",
       "format": "list"
     },
     {
-      "title": "Ações",
-      "instruction": "Todas as tarefas combinadas, com responsável e prazo. Sempre inclua o trecho da transcrição e o horário de referência",
-      "format": "list",
-      "item_format": "| **Responsável** | **Tarefa** | **Prazo** | **Trecho de referência** | **Horário** |\n| --- | --- | --- | --- | --- |"
+      "title": "O que ficou decidido",
+      "instruction": "Só o que foi de fato combinado ou aprovado. Não inclua ideias que ficaram só como sugestão",
+      "format": "list"
     },
     {
-      "title": "Destaques da conversa",
-      "instruction": "Os principais assuntos discutidos, os argumentos centrais e as ideias importantes",
-      "format": "paragraph"
+      "title": "Quem faz o quê",
+      "instruction": "Uma linha por tarefa, no formato: responsável, a tarefa, o prazo (se houver) e o horário da fala entre colchetes. Se ninguém foi nomeado, use Você ou Participantes",
+      "format": "list"
+    },
+    {
+      "title": "Pontos em aberto",
+      "instruction": "Dúvidas e assuntos que ficaram sem resposta ou sem dono e precisam voltar numa próxima conversa",
+      "format": "list"
     }
   ]
 }

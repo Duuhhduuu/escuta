@@ -1,51 +1,36 @@
 {
   "name": "Acompanhamento de projeto",
-  "description": "Marcos, riscos, decisões e ações de uma reunião de status.",
+  "description": "Reunião de status: como o projeto está, o que atrasa e o que fazer a seguir.",
   "sections": [
     {
-      "title": "Data e horário",
-      "instruction": "Data, horário de início e fim e quem conduziu, se for dito",
-      "format": "string"
-    },
-    {
-      "title": "Participantes",
-      "instruction": "Quem participou e o papel de cada um",
-      "format": "list"
-    },
-    {
-      "title": "Marcos e andamento",
-      "instruction": "Marcos atuais com situação e previsão de conclusão",
-      "format": "list",
-      "item_format": "| **Marco** | **Situação** | **Previsão** |\n| --- | --- | --- |"
-    },
-    {
-      "title": "Resumo do progresso",
-      "instruction": "Parágrafo curto com o que avançou desde a última reunião",
+      "title": "Situação geral",
+      "instruction": "Um parágrafo dizendo se o projeto está no prazo, atrasado ou em risco, e por quê",
       "format": "paragraph"
     },
     {
-      "title": "Principais riscos",
-      "instruction": "Riscos com impacto, plano de mitigação e responsável",
-      "format": "list",
-      "item_format": "| **Risco** | **Impacto** | **Mitigação** | **Responsável** |\n| --- | --- | --- | --- |"
+      "title": "Entregas e prazos",
+      "instruction": "Cada entrega citada com seu estado (concluída, em andamento ou atrasada) e a data combinada",
+      "format": "list"
+    },
+    {
+      "title": "Riscos e problemas",
+      "instruction": "O que ameaça o prazo ou a qualidade, e o que foi dito para reduzir o risco",
+      "format": "list"
     },
     {
       "title": "Decisões",
-      "instruction": "Decisões tomadas, com o motivo e o horário",
-      "format": "list",
-      "item_format": "| **Decisão** | **Motivo** | **Horário** |\n| --- | --- | --- |"
+      "instruction": "As decisões tomadas na reunião, com o motivo quando ele foi explicado",
+      "format": "list"
     },
     {
-      "title": "Ações",
-      "instruction": "Tarefas com responsável, prazo, prioridade e situação",
-      "format": "list",
-      "item_format": "| **Responsável** | **Tarefa** | **Prazo** | **Prioridade** | **Situação** |\n| --- | --- | --- | --- | --- |"
+      "title": "Próximas ações",
+      "instruction": "Uma linha por ação: responsável, tarefa, prazo e horário da fala entre colchetes",
+      "format": "list"
     },
     {
-      "title": "Documentos citados",
-      "instruction": "Links, tickets ou materiais mencionados, se houver",
-      "format": "list",
-      "item_format": "| **Título** | **Endereço** | **Tipo** |\n| --- | --- | --- |"
+      "title": "Material citado",
+      "instruction": "Documentos, links, planilhas ou sistemas mencionados, se houver",
+      "format": "list"
     }
   ]
 }
