@@ -98,7 +98,7 @@ const transcriptLines = (m) =>
 
 function meetingMatches(m, terms) {
   const hay = fold(
-    [m.title, m.minutes, templateName(m.template), ...(m.segments || []).map((s) => s.text)].filter(Boolean).join("\n"),
+    [m.title, m.minutes, m.notes, templateName(m.template), ...(m.segments || []).map((s) => s.text)].filter(Boolean).join("\n"),
   );
   return terms.every((t) => hay.includes(t));
 }
@@ -327,7 +327,7 @@ const STAGES = {
 };
 
 const meetingMarkdown = (m) =>
-  `${m.minutes || `# ${m.title}`}\n\n---\n\n## Transcrição\n\n${transcriptLines(m)
+  `${m.minutes || `# ${m.title}`}\n\n---\n\n${m.notes ? `## Notas\n\n${m.notes}\n\n---\n\n` : ""}## Transcrição\n\n${transcriptLines(m)
     .map((l) => `**[${l.at}] ${l.who}:** ${l.text}`)
     .join("\n\n")}\n`;
 
@@ -397,6 +397,12 @@ function meetingCard(m, terms) {
     item.append(el("p", "error", m.minutesError || "A ata não foi gerada."));
   }
   if (m.minutes && m.minutesError) item.append(el("p", "error", m.minutesError));
+
+  if (m.notes) {
+    const box = el("div", "notes-box");
+    box.append(el("div", "label", "Suas notas"), Object.assign(el("p", "text"), { textContent: m.notes }));
+    item.append(box);
+  }
 
   const lines = transcriptLines(m);
   let transcript = null;

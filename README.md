@@ -143,7 +143,10 @@ Além das mensagens do WhatsApp, o Escuta grava reuniões online (Google Meet, T
 
 Como funciona: a extensão grava o áudio da aba e o seu microfone **em canais separados** do mesmo arquivo. O servidor transcreve cada canal sozinho e junta por horário, então sabe o que foi você e o que foram os outros sem adivinhar vozes. A ata é gerada pelo Gemini ou pelo Ollama, o mesmo dos resumos.
 
-- **Transcrição ao vivo:** ao começar a gravar abre uma janelinha no canto direito da tela, para você deixar ao lado da reunião, com o texto aparecendo conforme as pessoas falam, uns 1 a 2 s depois da frase. O áudio é cortado nas pausas da fala (não de tempo em tempo), então as frases saem inteiras. É uma prévia: a transcrição final, mais precisa, vem ao parar. Dá para desligar em **Mostrar a transcrição ao vivo**, e **Abrir a transcrição ao vivo** no popup reabre a janela se você a fechar. Se o servidor não responder, a janela avisa e a gravação continua.
+- **Painel ao vivo, ao lado da reunião:** ao começar a gravar, um painel flutuante aparece no lado direito da própria aba (como o do Tactiq), com a transcrição ao vivo, uns 1 a 2 s depois de cada frase, quem falou e o horário. O áudio é cortado nas pausas da fala, então as frases saem inteiras. É uma prévia: a transcrição final, mais precisa, vem ao parar.
+  - No cabeçalho: **minimizar** (vira uma bolinha que traz o painel de volta), **abrir em janela separada** e **fechar** (a gravação continua).
+  - **Notas:** a caixa embaixo é sua. Anote nomes, prazos, o que importa. Elas entram na ata (a IA as usa para acertar a grafia de nomes e destacar o que você marcou) e ficam na página de transcrições.
+  - Se a página não aceitar o painel, ele abre como janela separada. **Mostrar a transcrição ao vivo** no popup liga e desliga, e **Abrir a transcrição ao vivo** reabre o painel se você o fechar. Se o servidor não responder, o painel avisa e a gravação continua.
 - **Use fones de ouvido.** Sem fone, o microfone também capta o alto-falante. O servidor descarta o que for repetição do que saiu da aba, mas fone é mais limpo.
 - A gravação é salva no disco do navegador a cada 10 s. Se o servidor estiver desligado ao parar, ou o navegador cair, o áudio não se perde: a reunião aparece com **Tentar de novo**.
 - Fechar a aba da reunião encerra a gravação e gera a ata com o que foi gravado.

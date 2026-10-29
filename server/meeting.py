@@ -82,20 +82,28 @@ def section_instructions(template):
     return "\n".join(lines)
 
 
-def minutes_prompt(template, language="pt"):
+def minutes_prompt(template, language="pt", notes=False):
     idioma = LANGUAGES.get(language, LANGUAGES["pt"])
+    rules = [
+        f"Escreva em {idioma}.",
+        "Use apenas o que está na transcrição e nas anotações. Não invente nomes, datas, números nem decisões.",
+        "Mantenha nomes, números, datas e horários exatamente como foram ditos.",
+        "Se uma seção não tiver conteúdo, escreva _Nada a registrar._",
+        "A transcrição marca quem fala: 'Você' é quem gravou e 'Participantes' são os outros. "
+        "Quando não houver nomes, use esses rótulos.",
+        "Os horários entre colchetes ([mm:ss]) vêm da transcrição; use-os onde o modelo pedir referência.",
+    ]
+    if notes:
+        rules.append(
+            "Depois da transcrição vêm as 'Anotações de quem gravou', escritas durante a reunião. Não são falas: "
+            "use-as para acertar a grafia de nomes e termos e para dar destaque ao que a pessoa marcou como importante."
+        )
+    rules.append("Responda só com o Markdown da ata, sem comentários antes ou depois.")
+    numbered = "\n".join(f"{i}. {rule}" for i, rule in enumerate(rules, 1))
     return (
         "Você é um redator experiente de atas de reunião. Preencha o modelo em Markdown abaixo "
         "com base na transcrição que o usuário enviar.\n\n"
-        "Regras:\n"
-        f"1. Escreva em {idioma}.\n"
-        "2. Use apenas o que está na transcrição. Não invente nomes, datas, números nem decisões.\n"
-        "3. Mantenha nomes, números, datas e horários exatamente como foram ditos.\n"
-        "4. Se uma seção não tiver conteúdo na transcrição, escreva _Nada a registrar._\n"
-        "5. A transcrição marca quem fala: 'Você' é quem gravou e 'Participantes' são os outros. "
-        "Quando não houver nomes, use esses rótulos.\n"
-        "6. Os horários entre colchetes ([mm:ss]) vêm da transcrição; use-os onde o modelo pedir referência.\n"
-        "7. Responda só com o Markdown da ata, sem comentários antes ou depois.\n\n"
+        f"Regras:\n{numbered}\n\n"
         f"Instruções por seção:\n{section_instructions(template)}\n\n"
         f"Estrutura do modelo:\n\n{structure(template)}"
     )

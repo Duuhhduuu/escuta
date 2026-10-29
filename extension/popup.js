@@ -232,7 +232,8 @@ $("rec-start").addEventListener("click", async () => {
   const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value });
   $("rec-start").disabled = false;
   if (!res?.ok) return showRecError(res?.message || "Não consegui começar a gravar.");
-  if (res.data.live) await openLive();
+  // O painel entra na própria aba da reunião; se a página não deixar, cai para uma janela solta.
+  if (res.data.live && !res.data.dock) await openLive();
   refreshRec();
 });
 
@@ -254,7 +255,10 @@ async function openLive() {
 }
 
 $("rec-live-open").addEventListener("click", async () => {
-  await openLive();
+  const state = await chrome.runtime.sendMessage({ type: "rec-state" }).catch(() => null);
+  const tabId = state?.data?.rec?.tabId;
+  const res = tabId == null ? null : await chrome.runtime.sendMessage({ type: "dock-open", tabId }).catch(() => null);
+  if (!res?.data?.dock) await openLive(); // a aba não está à mão (ou fechou): janela solta
   window.close();
 });
 

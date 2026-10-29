@@ -5,6 +5,7 @@
 const MEETING_PREFIX = "m:";
 const REC_KEY = "rec"; // gravação em andamento; storage.session sobrevive ao service worker dormir
 const LIVE_KEY = "live"; // texto ao vivo da gravação em andamento: { id, lines, error, lag }
+const NOTES_KEY = "notes"; // o que a pessoa anota no painel: { id, text }
 const LIVE_LINES_MAX = 5000;
 
 const canRecord = () => Boolean(chrome.offscreen && chrome.tabCapture);
@@ -45,6 +46,21 @@ const closeOffscreen = () => chrome.offscreen.closeDocument().catch(() => {});
 const toOffscreen = (message) =>
   chrome.runtime.sendMessage({ target: "offscreen", ...message }).catch((err) => ({ ok: false, message: String(err?.message || err) }));
 
+// ---- painel dentro da aba da reunião ----------------------------------------------------
+
+// dock.js desenha o painel flutuante na página. Só funciona numa aba que a pessoa acabou de
+// invocar (activeTab); se falhar, o chamador cai para a janela solta.
+async function openDock(tabId) {
+  if (!chrome.scripting || tabId == null) return false;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["dock.js"] });
+    return true;
+  } catch (err) {
+    console.warn("[escuta] não consegui abrir o painel na aba:", err.message || err);
+    return false;
+  }
+}
+
 // ---- gravar ---------------------------------------------------------------------
 
 async function startMeeting({ streamId, tabId, title, template }) {
@@ -58,7 +74,7 @@ async function startMeeting({ streamId, tabId, title, template }) {
     settings.live === false
       ? null
       : { base: BASE, language: settings.language, model: await resolveModel(settings.whisperModel), token: await getToken() };
-  await chrome.storage.session.remove(LIVE_KEY); // texto ao vivo da reunião anterior
+  await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY]); // texto e notas da reunião anterior
   try {
     await ensureOffscreen();
   } catch (err) {
@@ -83,7 +99,8 @@ async function startMeeting({ streamId, tabId, title, template }) {
     language: settings.language,
   });
   setBadge("REC", "#b42318");
-  return { ok: true, data: { id, mic: res.mic, micError: res.micError || null, live: Boolean(res.live) } };
+  const dock = res.live ? await openDock(tabId) : false;
+  return { ok: true, data: { id, mic: res.mic, micError: res.micError || null, live: Boolean(res.live), dock } };
 }
 
 let stopping = false;
@@ -95,6 +112,8 @@ async function stopMeeting() {
   try {
     const res = await toOffscreen({ type: "stop" });
     await closeOffscreen();
+    const written = (await chrome.storage.session.get(NOTES_KEY))[NOTES_KEY];
+    const notes = written?.id === rec.id ? String(written.text || "").trim() : "";
     // Mesmo que o gravador não responda, o que já foi salvo em disco ainda dá uma reunião.
     await saveMeeting({
       id: rec.id,
@@ -105,6 +124,7 @@ async function stopMeeting() {
       template: rec.template,
       language: rec.language,
       mic: rec.mic,
+      notes,
       status: "processing",
       stage: "upload",
       progress: 0,
@@ -168,7 +188,13 @@ async function writeMinutes(id, template) {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ segments: entry.segments, template, language: settings.language, model: settings.ollamaModel }),
+      body: JSON.stringify({
+        segments: entry.segments,
+        notes: entry.notes || "",
+        template,
+        language: settings.language,
+        model: settings.ollamaModel,
+      }),
     },
     15 * 60_000,
   );
@@ -328,6 +354,8 @@ function meetingHandle(msg) {
     case "rec-stop":
     case "rec-ended": // o gravador avisa que a captura da aba terminou
       return stopMeeting();
+    case "dock-open":
+      return openDock(msg.tabId).then((dock) => ({ ok: true, data: { dock } }));
     case "live-text":
       return liveText(msg.lines).then(() => ({ ok: true }));
     case "live-status":

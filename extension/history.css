@@ -146,6 +146,10 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .md th, .md td { padding: 6px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
 .md th { background: var(--paper); font-weight: 600; white-space: nowrap; }
 
+.notes-box { margin-top: 12px; padding: 8px 10px; border-left: 3px solid var(--signal); border-radius: 2px 8px 8px 2px; background: var(--paper); }
+.notes-box .label { font: 600 10px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+.notes-box .text { font: 400 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+
 .transcript { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); max-height: 28em; overflow-y: auto; }
 .transcript[hidden] { display: none; }
 .line { display: grid; grid-template-columns: auto auto 1fr; gap: 4px 8px; margin: 0 0 8px; font-size: 13.5px; line-height: 1.5; }

@@ -535,7 +535,7 @@ def complete(system, user, model, timeout):
     return summarize(user, model or DEFAULT_OLLAMA, system, timeout)
 
 
-def make_minutes(transcript, template_id, language, model):
+def make_minutes(transcript, template_id, language, model, notes=""):
     template = meeting.load_templates().get(template_id)  # relê a pasta: modelo novo vale sem reiniciar
     if template is None:
         raise ApiError(404, "template_missing", f"Modelo '{template_id}' não existe.")
@@ -546,9 +546,10 @@ def make_minutes(transcript, template_id, language, model):
         print(f"[escuta] transcrição longa: anotando {len(chunks)} partes antes da ata.", flush=True)
         notes = [complete(meeting.NOTES_PROMPT, chunk, model, 300) for chunk in chunks]
         transcript = "\n\n".join(f"Anotações da parte {i}:\n{note}" for i, note in enumerate(notes, 1))
-    return complete(
-        meeting.minutes_prompt(template, language), f"Transcrição da reunião:\n\n{transcript}", model, 600
-    )
+    user = f"Transcrição da reunião:\n\n{transcript}"
+    if notes:
+        user += f"\n\nAnotações de quem gravou, feitas durante a reunião:\n{notes}"
+    return complete(meeting.minutes_prompt(template, language, bool(notes)), user, model, 600)
 
 
 def ollama_models():
@@ -817,9 +818,14 @@ class Handler(BaseHTTPRequestHandler):
                     transcript = meeting.format_transcript(payload["segments"])
                 if not transcript:
                     raise ApiError(400, "empty_text", "Nada para resumir.")
+                notes = str(payload.get("notes") or "").strip()[:20_000]
                 return {
                     "minutes": make_minutes(
-                        transcript, payload.get("template") or "reuniao", payload.get("language") or "pt", payload.get("model")
+                        transcript,
+                        payload.get("template") or "reuniao",
+                        payload.get("language") or "pt",
+                        payload.get("model"),
+                        notes,
                     )
                 }
 

@@ -14,9 +14,17 @@ const STAGES = {
 const ECHO_SECONDS = 4;
 const ECHO_SIMILARITY = 0.7;
 
+// ?dock=1: esta página é a moldura do painel que o dock.js põe dentro da aba da reunião.
+// Sem isso é a janela solta, que serve de alternativa quando a página não aceita o painel.
+const dock = new URLSearchParams(location.search).has("dock");
+document.body.classList.toggle("dock", dock);
+$("tools").hidden = !dock;
+const askPage = (action) => parent.postMessage({ escuta: "dock", action }, "*");
+
 let rec = null;
 let live = { id: null, lines: [], error: null, lag: false };
 let meeting = null;
+let notes = { id: null, text: "" };
 let seen = 0; // quantas falas já estavam na tela, para saber se chegou coisa nova
 let stick = true; // acompanhando o fim; sobe para reler e a janela para de puxar
 
@@ -125,17 +133,41 @@ function paintState() {
   $("open").hidden = rec || !meeting || meeting.status === "processing";
   $("open").textContent = meeting?.status === "failed" ? "Abrir as transcrições" : "Abrir a ata";
   $("copy").hidden = !live.lines.length;
+  paintNotes();
   tick();
 }
+
+// As notas ficam em storage.session enquanto grava e, depois de parar, na própria reunião.
+function paintNotes() {
+  const box = $("notes");
+  box.disabled = !rec;
+  if (document.activeElement === box) return; // não mexe no que a pessoa está digitando
+  const text = rec ? (notes.id === rec.id ? notes.text : "") : meeting?.notes || "";
+  if (box.value !== text) box.value = text;
+  box.placeholder = rec ? "Anote o que importa. Entra na ata." : text ? "" : "As notas da reunião aparecem aqui.";
+}
+
+let saving = 0;
+function saveNotes() {
+  clearTimeout(saving);
+  if (!rec) return Promise.resolve();
+  notes = { id: rec.id, text: $("notes").value };
+  return chrome.storage.session.set({ notes });
+}
+$("notes").addEventListener("input", () => {
+  clearTimeout(saving);
+  saving = setTimeout(saveNotes, 400);
+});
 
 function tick() {
   $("clock").textContent = rec ? clockText(Date.now() - rec.startedAt) : meeting?.duration ? clockText(meeting.duration * 1000) : "";
 }
 
 async function read() {
-  const session = await chrome.storage.session.get(["rec", "live"]);
+  const session = await chrome.storage.session.get(["rec", "live", "notes"]);
   rec = session.rec || null;
   live = session.live || { id: null, lines: [], error: null, lag: false };
+  notes = session.notes || { id: null, text: "" };
 
   const wanted = rec?.id || live.id;
   const all = await chrome.storage.local.get(null);
@@ -146,8 +178,24 @@ async function read() {
 
 $("stop").addEventListener("click", async () => {
   $("stop").disabled = true;
+  await saveNotes(); // o que ainda não passou pelo atraso de 400 ms entra na ata
   await chrome.runtime.sendMessage({ type: "rec-stop" }).catch(() => {});
   $("stop").disabled = false;
+});
+
+$("tool-min").addEventListener("click", () => askPage("minimize"));
+$("tool-close").addEventListener("click", () => askPage("close"));
+$("tool-pop").addEventListener("click", async () => {
+  const width = 400;
+  await chrome.windows.create({
+    url: chrome.runtime.getURL("live.html"),
+    type: "popup",
+    width,
+    height: Math.min(760, screen.availHeight - 80),
+    left: (screen.availLeft || 0) + screen.availWidth - width - 20,
+    top: (screen.availTop || 0) + 40,
+  });
+  askPage("close");
 });
 
 $("open").addEventListener("click", () => {
@@ -159,13 +207,18 @@ $("copy").addEventListener("click", async () => {
   const text = withoutEcho(live.lines)
     .map((l) => `[${stamp(l.start)}] ${WHO[l.who] || l.who}: ${l.text}`)
     .join("\n");
+  let said = "Copiado ✓";
   try {
     await navigator.clipboard.writeText(text);
-    $("copy").textContent = "Copiado ✓";
   } catch {
-    $("copy").textContent = "Não copiou";
+    said = "Não copiou";
   }
-  setTimeout(() => ($("copy").textContent = "Copiar"), 1500);
+  $("copy").title = said;
+  $("status").textContent = said;
+  setTimeout(() => {
+    $("copy").title = "Copiar a transcrição";
+    paintState();
+  }, 1500);
 });
 
 $("feed").addEventListener("scroll", () => {

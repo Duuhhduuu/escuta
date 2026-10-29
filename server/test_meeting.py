@@ -43,6 +43,17 @@ class Templates(unittest.TestCase):
         self.assertIn("português do Brasil", prompt)
         self.assertIn("| **Responsável**", prompt)  # o formato da tabela de ações vai junto
 
+    def test_notes_rule_only_when_there_are_notes(self):
+        template = meeting.load_templates()["reuniao"]
+        sem = meeting.minutes_prompt(template, "pt")
+        com = meeting.minutes_prompt(template, "pt", notes=True)
+        self.assertNotIn("Anotações de quem gravou", sem)
+        self.assertIn("Anotações de quem gravou", com)
+        # a numeração das regras continua sem buracos nos dois casos
+        for prompt in (sem, com):
+            numbers = [int(line.split(".")[0]) for line in prompt.split(chr(10)) if line[:1].isdigit() and line[1:3] == ". "]
+            self.assertEqual(numbers, list(range(1, len(numbers) + 1)))
+
     def test_language_is_respected(self):
         template = meeting.load_templates()["reuniao"]
         self.assertIn("inglês", meeting.minutes_prompt(template, "en"))
