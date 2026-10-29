@@ -49,6 +49,18 @@
     if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Hooked;
   }
 
+  // Uma faixa de entrada (microfone) tem a mesma origem das que o getUserMedia entregou.
+  const isLocalId = (track) => [...locals].some((l) => l.id === track.id);
+
+  // Para investigar no console da página do Meet: __escutaDebug()
+  window.__escutaDebug = () => ({
+    gravando: Boolean(capture),
+    voce: [...locals].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
+    outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
+    conexoes: [...pcs].map((p) => p.connectionState),
+    elementos: [...document.querySelectorAll("audio, video")].map((e) => ({ tag: e.tagName, stream: e.srcObject instanceof MediaStream, faixas: e.srcObject?.getAudioTracks?.().length ?? 0 })),
+  });
+
   function addTrack(set, track) {
     set.add(track);
     track.addEventListener("ended", () => set.delete(track));
@@ -138,6 +150,15 @@
     // aparecem nos receptores da conexão: confere de tempos em tempos enquanto grava.
     const scan = () => {
       for (const pc of pcs) for (const receiver of pc.getReceivers?.() || []) if (receiver.track?.kind === "audio" && !remotes.has(receiver.track)) addTrack(remotes, receiver.track);
+      // O que o Meet toca para você sai de elementos <audio>/<video> ligados a um MediaStream:
+      // é a voz dos outros, e vale mesmo quando a faixa não passou pelo gancho da conexão.
+      for (const el of document.querySelectorAll("audio, video")) {
+        const stream = el.srcObject;
+        if (!(stream instanceof MediaStream)) continue;
+        for (const track of stream.getAudioTracks()) {
+          if (track.readyState === "live" && !remotes.has(track) && !locals.has(track) && !isLocalId(track)) addTrack(remotes, track);
+        }
+      }
     };
     capture = { ctx, attach, sources, scanner: setInterval(scan, 2000) };
     for (const track of locals) attach("voce", track);
