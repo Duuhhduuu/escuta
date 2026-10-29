@@ -14,7 +14,7 @@ async function ask() {
       status.textContent = "Gravando. Voltando para a reunião…";
       setTimeout(() => window.close(), 800);
     } else if (!res || res.code === "none") {
-      status.textContent = "Pronto! Pode fechar esta aba e gravar a reunião pelo ícone do Escuta.";
+      status.textContent = "Pronto! A próxima gravação já inclui a sua voz. Pode fechar esta aba.";
       setTimeout(() => window.close(), 1500);
     } else {
       status.textContent = res.message || "Permissão concedida, mas não consegui começar a gravar. Volte à reunião e grave pelo ícone do Escuta.";

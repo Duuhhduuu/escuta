@@ -120,7 +120,7 @@ async function showLive(tabId) {
 
 // ---- gravar ---------------------------------------------------------------------
 
-async function startMeeting({ streamId, tabId, title, template }) {
+async function startMeeting({ streamId, tabId, title, template, mic }) {
   if (!canRecord()) return fail("unsupported", "Gravar reunião só funciona no Chrome e no Brave.");
   if (await getRec()) return fail("busy", "Já existe uma gravação em andamento.");
 
@@ -140,7 +140,7 @@ async function startMeeting({ streamId, tabId, title, template }) {
     logRec(`gravador: não preparou (${err.message || err})`);
     return fail("offscreen", `Não consegui preparar o gravador: ${err.message || err}`);
   }
-  const res = await toOffscreen({ type: "start", streamId, recId: id, live });
+  const res = await toOffscreen({ type: "start", streamId, recId: id, live, mic });
   if (!res?.ok) {
     await closeOffscreen();
     logRec(`gravador: recusou a captura (${res?.name || ""} ${res?.message || "sem resposta"})`);

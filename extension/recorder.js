@@ -3,7 +3,7 @@
 // transcreve cada lado sozinho e sabe quem falou sem precisar adivinhar vozes.
 (() => {
   const CHUNK_MS = 10_000;
-  const MIC_WAIT_MS = 5_000; // um documento offscreen não mostra o pedido de permissão: sem resposta, segue sem microfone
+  const MIC_WAIT_MS = 1_500; // um documento offscreen não mostra o pedido de permissão: sem resposta, segue sem microfone
   const BITRATE = 64_000;
 
   let job = null;
@@ -161,7 +161,7 @@
   const withTimeout = (promise, ms) =>
     Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("timeout"), { name: "TimeoutError" })), ms))]);
 
-  async function start({ streamId, recId, live }) {
+  async function start({ streamId, recId, live, mic: micAllowed }) {
     if (job) throw new Error("Já existe uma gravação em andamento.");
 
     const tab = await navigator.mediaDevices.getUserMedia({
@@ -171,6 +171,8 @@
     let mic = null;
     let micError = null;
     try {
+      // O popup diz se o microfone já foi liberado. Sem permissão, nem tenta: gravar não espera por ele.
+      if (micAllowed === false) throw Object.assign(new Error("sem permissão"), { name: "NotAllowedError" });
       mic = await withTimeout(
         navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
         MIC_WAIT_MS,

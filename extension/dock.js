@@ -17,17 +17,17 @@
     .panel {
       position: fixed; top: 12px; right: 12px; bottom: 12px; width: 384px; max-width: calc(100vw - 24px);
       z-index: 2147483647; border-radius: 14px; overflow: hidden;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
-      background: #1c2430;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px #2a3354;
+      background: #161d32;
     }
     .panel iframe { display: block; width: 100%; height: 100%; border: 0; color-scheme: normal; }
     .pill {
       position: fixed; right: 16px; bottom: 96px; z-index: 2147483647; width: 52px; height: 52px;
       display: none; align-items: center; justify-content: center; border: 0; border-radius: 50%;
-      background: #3347ff; color: #fff; cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      background: #ffc53d; color: #0e1424; cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     }
     .pill:hover { filter: brightness(1.1); }
-    .pill:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+    .pill:focus-visible { outline: 3px solid #f6f4ef; outline-offset: 2px; }
     .pill svg { width: 24px; height: 24px; }
     .minimized .panel { display: none; }
     .minimized .pill { display: flex; }

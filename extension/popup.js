@@ -187,7 +187,7 @@ async function refreshRec() {
     $("rec-mic").textContent =
       (rec.mic
         ? "Gravando o áudio da aba e o seu microfone."
-        : "Sem microfone: só o áudio da aba está sendo gravado. Se quiser a sua voz, pare, permita o microfone e grave de novo.") + where;
+        : "Gravando só o áudio da aba (sem o seu microfone). Para incluir a sua voz, permita o microfone e grave de novo.") + where;
     $("rec-live-open").hidden = !rec.live;
     showRec("rec-live");
   } else {
@@ -229,15 +229,9 @@ $("rec-start").addEventListener("click", async () => {
     return showRecError("Abra a aba da reunião, clique no ícone do Escuta nela e grave de novo.");
   }
 
-  // A permissão de microfone não aparece no gravador invisível: pede uma vez numa aba normal.
+  // Grava na hora. O microfone é um extra: sem permissão, grava só o áudio da aba.
   const mic = await navigator.permissions.query({ name: "microphone" }).catch(() => null);
-  if (mic?.state === "prompt") {
-    // Deixa o pedido guardado: assim que a permissão sair, a gravação começa sozinha (o popup
-    // fecha quando a aba abre, então não há onde pedir para "gravar de novo").
-    await chrome.runtime.sendMessage({ type: "rec-pending", tabId: tab.id, title: tab.title, template: $("template").value });
-    await chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
-    return showRecError("Permita o microfone na aba que abriu. A gravação começa sozinha.");
-  }
+  const micGranted = mic?.state === "granted";
 
   let streamId;
   try {
@@ -246,7 +240,7 @@ $("rec-start").addEventListener("click", async () => {
     return showRecError(`Não consegui capturar esta aba: ${err.message || err}`);
   }
   $("rec-start").disabled = true;
-  const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value });
+  const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value, mic: micGranted });
   $("rec-start").disabled = false;
   if (!res?.ok) return showRecError(res?.message || "Não consegui começar a gravar.");
   // O painel entra na própria aba da reunião; se a página não deixar, cai para uma janela solta.
@@ -295,3 +289,17 @@ checkHealth();
 checkPage();
 refreshRec();
 loadTemplates();
+
+// Microfone opcional: só mostra o convite enquanto ainda não foi liberado.
+navigator.permissions
+  .query({ name: "microphone" })
+  .then((status) => {
+    const sync = () => ($("mic-allow").hidden = status.state === "granted");
+    sync();
+    status.addEventListener("change", sync);
+  })
+  .catch(() => {});
+$("mic-allow").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
+  window.close();
+});
