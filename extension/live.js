@@ -59,6 +59,8 @@ function stamp(seconds) {
 }
 
 const clockText = (ms) => stamp(Math.max(0, ms) / 1000);
+// Tempo gravado: o parado (pausa) não conta.
+const elapsed = (r) => (r.paused ? r.pausedAt : Date.now()) - r.startedAt - (r.pausedMs || 0);
 
 function paintFeed() {
   const lines = withoutEcho(live.lines);
@@ -112,8 +114,13 @@ function paintState() {
   let warn = false;
 
   if (rec) {
-    dot.className = "dot rec";
-    note = "Gravando. A transcrição aparece aqui conforme a fala.";
+    dot.className = rec.paused ? "dot pause" : "dot rec";
+    note = rec.paused ? "Gravação pausada. Nada é gravado até você retomar." : "Gravando. A transcrição aparece aqui conforme a fala.";
+    if (rec.stopAt) {
+      note = "A ata será gerada em instantes. Clique em Desfazer para continuar gravando.";
+      warn = true;
+    }
+    if (rec.paused) warn = true;
     if (live.error) {
       note = `${live.error} A gravação continua e a transcrição final é feita ao parar.`;
       warn = true;
@@ -149,6 +156,10 @@ function paintState() {
   }
 
   $("stop").hidden = !rec;
+  $("pause").hidden = !rec || Boolean(rec.stopAt);
+  $("ico-pause").toggleAttribute("hidden", Boolean(rec?.paused)); // SVG não tem a propriedade .hidden
+  $("ico-play").toggleAttribute("hidden", !rec?.paused);
+  $("pause").title = $("pause").ariaLabel = rec?.paused ? "Retomar a gravação" : "Pausar a gravação";
   $("open").hidden = rec || !meeting || meeting.status === "processing";
   $("open").textContent = meeting?.status === "failed" ? "Abrir as transcrições" : "Abrir a ata";
   $("copy").hidden = !live.lines.length;
@@ -178,8 +189,22 @@ $("notes").addEventListener("input", () => {
   saving = setTimeout(saveNotes, 400);
 });
 
+let stopSent = false;
 function tick() {
-  $("clock").textContent = rec ? clockText(Date.now() - rec.startedAt) : meeting?.duration ? clockText(meeting.duration * 1000) : "";
+  if (rec?.stopAt) {
+    const left = Math.max(0, Math.ceil((rec.stopAt - Date.now()) / 1000));
+    $("stop").textContent = `Desfazer (${left})`;
+    $("stop").classList.add("undo");
+    if (left === 0 && !stopSent) {
+      stopSent = true;
+      chrome.runtime.sendMessage({ type: "rec-stop" }).catch(() => {});
+    }
+  } else {
+    stopSent = false;
+    $("stop").textContent = "Parar e gerar a ata";
+    $("stop").classList.remove("undo");
+  }
+  $("clock").textContent = rec ? clockText(elapsed(rec)) : meeting?.duration ? clockText(meeting.duration * 1000) : "";
 }
 
 async function read() {
@@ -196,11 +221,15 @@ async function read() {
 }
 
 $("stop").addEventListener("click", async () => {
-  $("stop").disabled = true;
+  if (rec?.stopAt) {
+    await chrome.runtime.sendMessage({ type: "rec-stop-cancel" }).catch(() => {}); // desfaz
+    return;
+  }
   await saveNotes(); // o que ainda não passou pelo atraso de 400 ms entra na ata
-  await chrome.runtime.sendMessage({ type: "rec-stop" }).catch(() => {});
-  $("stop").disabled = false;
+  await chrome.runtime.sendMessage({ type: "rec-stop-soon" }).catch(() => {});
 });
+
+$("pause").addEventListener("click", () => chrome.runtime.sendMessage({ type: rec?.paused ? "rec-resume" : "rec-pause" }).catch(() => {}));
 
 $("tool-min").addEventListener("click", () => askPage("minimize"));
 $("tool-close").addEventListener("click", () => askPage("close"));

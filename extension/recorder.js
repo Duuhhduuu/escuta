@@ -145,7 +145,9 @@
       if (!node) continue;
       const tap = new AudioWorkletNode(ctx, "pcm-tap");
       const push = liveChannel(who, enqueue);
-      tap.port.onmessage = (event) => push(event.data);
+      tap.port.onmessage = (event) => {
+        if (!job?.paused) push(event.data); // pausado: o texto ao vivo também espera
+      };
       node.connect(tap);
       tap.connect(sink);
       taps.push(tap);
@@ -258,7 +260,7 @@
     merger.connect(dest);
 
     const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: BITRATE });
-    const state = { recId, recorder, ctx, stopLive, streams: [tab, mic].filter(Boolean), n: 0, writes: Promise.resolve(), writeError: null, startedAt: Date.now(), mic: Boolean(mic), pageIn };
+    const state = { recId, recorder, ctx, stopLive, streams: [tab, mic].filter(Boolean), n: 0, writes: Promise.resolve(), writeError: null, startedAt: Date.now(), mic: Boolean(mic), pageIn, paused: false, pausedAt: 0, pausedMs: 0 };
     recorder.ondataavailable = (event) => {
       if (!event.data.size) return;
       const i = state.n++;
@@ -290,7 +292,30 @@
     for (const stream of state.streams) for (const track of stream.getTracks()) track.stop();
     await state.ctx.close().catch(() => {});
     if (state.writeError) return { ok: false, message: `Não consegui salvar a gravação: ${state.writeError.message || state.writeError}`, chunks: state.n };
-    return { ok: true, duration: (Date.now() - state.startedAt) / 1000, chunks: state.n, mic: state.mic };
+    const paused = state.pausedMs + (state.paused ? Date.now() - state.pausedAt : 0);
+    return { ok: true, duration: (Date.now() - state.startedAt - paused) / 1000, chunks: state.n, mic: state.mic };
+  }
+
+  // Pausar só segura o MediaRecorder: o arquivo não ganha o tempo parado. O som da reunião
+  // continua tocando normalmente.
+  function pause() {
+    if (!job) return { ok: false, message: "Nenhuma gravação em andamento." };
+    if (!job.paused) {
+      job.recorder.pause();
+      job.paused = true;
+      job.pausedAt = Date.now();
+    }
+    return { ok: true };
+  }
+
+  function resume() {
+    if (!job) return { ok: false, message: "Nenhuma gravação em andamento." };
+    if (job.paused) {
+      job.recorder.resume();
+      job.pausedMs += Date.now() - job.pausedAt;
+      job.paused = false;
+    }
+    return { ok: true };
   }
 
   const fail = (err) => ({ ok: false, message: String(err?.message || err), name: err?.name });
@@ -298,7 +323,7 @@
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg?.type === "page-audio") {
       // Áudio do Meet. Sem gravação em andamento, é resto de antes de parar: ignora.
-      const pageIn = job?.pageIn;
+      const pageIn = job?.paused ? null : job?.pageIn;
       if (pageIn) {
         pageIn.feed("voce", fromBase64(msg.voce));
         pageIn.feed("outros", fromBase64(msg.outros));
@@ -308,6 +333,8 @@
     if (msg?.target !== "offscreen") return; // mensagem para outro contexto: não responde
     if (msg.type === "start") start(msg).then(reply, (err) => reply(fail(err)));
     else if (msg.type === "stop") stop().then(reply, (err) => reply(fail(err)));
+    else if (msg.type === "pause") reply(pause());
+    else if (msg.type === "resume") reply(resume());
     else return;
     return true;
   });

@@ -81,6 +81,7 @@ h1 { flex: 1; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis
 .dot.rec { background: var(--rec); animation: blink 1.2s steps(1) infinite; }
 .dot.busy { background: var(--acc); animation: blink 0.9s steps(1) infinite; }
 .dot.done { background: var(--mute); }
+.dot.pause { background: var(--acc); animation: none; }
 @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.15; } }
 @media (prefers-reduced-motion: reduce) { .dot, .caret, .bars i:last-child { animation: none !important; } }
 
@@ -137,6 +138,7 @@ button:hover { border-color: var(--mute); }
 button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 button.primary, button.stop { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); font-weight: 600; font-size: 14px; }
 button.primary:hover, button.stop:hover { filter: brightness(1.05); }
+button.stop.undo { background: transparent; border-color: var(--acc); color: var(--ink); }
 
 button.icon, button.round { display: inline-grid; place-items: center; padding: 0; color: var(--ink); }
 button.icon { width: 30px; height: 30px; border-radius: 9px; }

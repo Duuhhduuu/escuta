@@ -151,6 +151,8 @@ const fmtClock = (ms) => {
 };
 
 let recStart = 0;
+let curRec = null;
+const recElapsed = (r) => (r.paused ? r.pausedAt : Date.now()) - r.startedAt - (r.pausedMs || 0);
 let latestId = "";
 
 // Gravando ou livre. A faixa "gerando a ata" é à parte: dá para gravar a próxima reunião
@@ -174,6 +176,7 @@ async function refreshRec() {
 
   const rec = res.data.rec;
   if (rec?.state === "recording") {
+    curRec = rec;
     recStart = rec.startedAt;
     $("rec-title").textContent = rec.title;
     const where =
@@ -260,10 +263,32 @@ chrome.storage.sync.get({ autoMeet: false }).then(({ autoMeet }) => ($("autoMeet
 $("autoMeet").addEventListener("change", () => chrome.storage.sync.set({ autoMeet: $("autoMeet").checked }));
 
 $("rec-stop").addEventListener("click", async () => {
-  $("rec-stop").disabled = true;
-  await chrome.runtime.sendMessage({ type: "rec-stop" });
-  $("rec-stop").disabled = false;
-  refreshRec();
+  // Parar tem janela para desfazer; o segundo clique cancela.
+  await chrome.runtime.sendMessage({ type: curRec?.stopAt ? "rec-stop-cancel" : "rec-stop-soon" });
+  await refreshRec();
+});
+
+$("rec-pause").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: curRec?.paused ? "rec-resume" : "rec-pause" });
+  await refreshRec();
+});
+
+let discardArmed = 0;
+$("rec-discard").addEventListener("click", async () => {
+  if (!discardArmed) {
+    // Apagar é irreversível: pede um segundo clique, como o Apagar das transcrições.
+    $("rec-discard").textContent = "Clique de novo para descartar de vez";
+    discardArmed = setTimeout(() => {
+      discardArmed = 0;
+      $("rec-discard").textContent = "Descartar esta gravação";
+    }, 4000);
+    return;
+  }
+  clearTimeout(discardArmed);
+  discardArmed = 0;
+  $("rec-discard").textContent = "Descartar esta gravação";
+  await chrome.runtime.sendMessage({ type: "rec-discard" });
+  await refreshRec();
 });
 
 $("rec-log-copy").addEventListener("click", async () => {
@@ -282,7 +307,13 @@ $("rec-open").addEventListener("click", () => {
 });
 
 setInterval(() => {
-  if (!$("rec-live").hidden) $("rec-clock").textContent = fmtClock(Date.now() - recStart);
+  if ($("rec-live").hidden || !curRec) return;
+  $("rec-clock").textContent = fmtClock(recElapsed(curRec));
+  const left = curRec.stopAt ? Math.max(0, Math.ceil((curRec.stopAt - Date.now()) / 1000)) : 0;
+  $("rec-stop").textContent = curRec.stopAt ? `Desfazer (${left})` : "Parar e gerar a ata";
+  $("rec-pause").textContent = curRec.paused ? "Retomar" : "Pausar";
+  $("rec-pause").hidden = Boolean(curRec.stopAt);
+  if (curRec.stopAt && left === 0) chrome.runtime.sendMessage({ type: "rec-stop" }).catch(() => {});
 }, 500);
 setInterval(refreshRec, 2000);
 
