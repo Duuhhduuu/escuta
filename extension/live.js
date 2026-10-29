@@ -65,13 +65,19 @@ function paintFeed() {
   const feed = $("feed");
   feed.replaceChildren();
   if (!lines.length) {
-    const empty = document.createElement("p");
+    const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = rec
+    const bars = document.createElement("div");
+    bars.className = "bars";
+    bars.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 5; i++) bars.append(document.createElement("i"));
+    const text = document.createElement("p");
+    text.textContent = rec
       ? rec.live
-        ? "Aguardando alguém falar…"
+        ? "Aguardando a primeira fala…"
         : "A transcrição ao vivo está desligada nesta gravação. A ata sai quando você parar."
       : "Nada para mostrar aqui.";
+    empty.append(bars, text);
     feed.append(empty);
     return;
   }
@@ -86,6 +92,9 @@ function paintFeed() {
     row.append(meta, Object.assign(document.createElement("p"), { className: "said", textContent: line.text }));
     feed.append(row);
   }
+  // O cursor âmbar fica na última fala enquanto a gravação segue.
+  const last = feed.lastElementChild?.querySelector(".said");
+  if (rec && last) last.append(Object.assign(document.createElement("span"), { className: "caret", "aria-hidden": "true" }));
   const fresh = lines.length > seen;
   seen = lines.length;
   if (stick) feed.scrollTop = feed.scrollHeight;
@@ -126,8 +135,18 @@ function paintState() {
     dot.className = "dot";
     note = "Nenhuma gravação em andamento. Comece pelo ícone do Escuta, em Reunião.";
   }
-  status.textContent = note;
+  const done = !rec && meeting?.status === "done";
+  status.textContent = done || (rec && !warn) ? "" : note; // gravando sem problema: o painel fala por si
   status.classList.toggle("warn", warn);
+  $("label").textContent = done ? "Gravação encerrada" : "Transcrição ao vivo";
+  $("final").hidden = !done;
+  $("feedwrap").hidden = done;
+  $("notesbox").hidden = done;
+  if (done) {
+    const mins = Math.round((meeting.duration || 0) / 60);
+    $("stat-dur").textContent = meeting.duration && meeting.duration < 60 ? `${Math.round(meeting.duration)} s` : `${mins} min`;
+    $("stat-lines").textContent = String(meeting.segments?.length || withoutEcho(live.lines).length || 0);
+  }
 
   $("stop").hidden = !rec;
   $("open").hidden = rec || !meeting || meeting.status === "processing";

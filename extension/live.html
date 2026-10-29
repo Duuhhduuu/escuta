@@ -25,16 +25,25 @@
           </button>
         </div>
       </div>
-      <div class="tab"><span>Transcrição ao vivo</span></div>
-      <p id="status" class="status" role="status"></p>
     </header>
 
-    <div class="feedwrap">
+    <p class="label" id="label">Transcrição ao vivo</p>
+    <p id="status" class="status" role="status"></p>
+
+    <div class="feedwrap" id="feedwrap">
       <main id="feed" aria-live="polite" aria-label="Transcrição ao vivo"></main>
       <button type="button" id="jump" class="jump" hidden>↓ Novas falas</button>
     </div>
 
-    <section class="notes">
+    <section class="final" id="final" hidden>
+      <h2>A ata está pronta.</h2>
+      <div class="stats">
+        <div class="stat"><b id="stat-dur">–</b><span>Duração</span></div>
+        <div class="stat"><b id="stat-lines">–</b><span>Falas</span></div>
+      </div>
+    </section>
+
+    <section class="notes" id="notesbox">
       <label for="notes">Notas</label>
       <textarea id="notes" rows="4" spellcheck="true" placeholder="Anote o que importa. Entra na ata."></textarea>
     </section>
