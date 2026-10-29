@@ -194,6 +194,11 @@ async function refreshRec() {
     showRec("rec-idle");
   }
 
+  const log = await chrome.runtime.sendMessage({ type: "rec-log" }).catch(() => null);
+  const lines = log?.data?.lines || [];
+  $("rec-logbox").hidden = !lines.length;
+  $("rec-log").textContent = lines.map((l) => `${new Date(l.at).toLocaleTimeString("pt-BR")}  ${l.line}`).join("\n");
+
   const last = await latestMeeting();
   latestId = last?.id || "";
   const processing = last?.status === "processing";
@@ -227,8 +232,11 @@ $("rec-start").addEventListener("click", async () => {
   // A permissão de microfone não aparece no gravador invisível: pede uma vez numa aba normal.
   const mic = await navigator.permissions.query({ name: "microphone" }).catch(() => null);
   if (mic?.state === "prompt") {
+    // Deixa o pedido guardado: assim que a permissão sair, a gravação começa sozinha (o popup
+    // fecha quando a aba abre, então não há onde pedir para "gravar de novo").
+    await chrome.runtime.sendMessage({ type: "rec-pending", tabId: tab.id, title: tab.title, template: $("template").value });
     await chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
-    return showRecError("Permita o microfone na aba que abriu e clique em Gravar de novo.");
+    return showRecError("Permita o microfone na aba que abriu. A gravação começa sozinha.");
   }
 
   let streamId;
@@ -260,6 +268,16 @@ $("rec-stop").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "rec-stop" });
   $("rec-stop").disabled = false;
   refreshRec();
+});
+
+$("rec-log-copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("rec-log").textContent);
+    $("rec-log-copy").textContent = "Copiado ✓";
+  } catch {
+    $("rec-log-copy").textContent = "Não copiou";
+  }
+  setTimeout(() => ($("rec-log-copy").textContent = "Copiar"), 1500);
 });
 
 $("rec-open").addEventListener("click", () => {

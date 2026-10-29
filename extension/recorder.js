@@ -180,6 +180,9 @@
     }
 
     const ctx = new AudioContext({ sampleRate: 48000 });
+    // Sem gesto da pessoa neste documento invisível, o navegador pode deixar o áudio suspenso:
+    // o arquivo sairia mudo. Acorda explicitamente.
+    if (ctx.state !== "running") await ctx.resume().catch(() => {});
     const merger = ctx.createChannelMerger(2);
     // Cada fonte vira mono antes de entrar no seu canal.
     const toChannel = (stream, channel) => {

@@ -138,6 +138,9 @@ button.secondary {
 #meeting { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 #meeting label { margin-bottom: 8px; }
 .rec-btn { width: 100%; }
+#rec-logbox { margin-top: 12px; font-size: 12px; }
+#rec-logbox summary { cursor: pointer; color: var(--mute); }
+#rec-log { margin: 8px 0 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: 8px; background: color-mix(in srgb, var(--signal) 8%, transparent); font: 11px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; user-select: text; }
 .rec-btn--stop { background: var(--bad); color: #fff; }
 .note { margin: 8px 0 0; color: var(--mute); font-size: 11.5px; }
 .note--bad { color: var(--bad); }

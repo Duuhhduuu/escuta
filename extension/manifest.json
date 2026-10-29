@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Escuta",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Transcreve e resume mensagens de voz do WhatsApp Web, tudo local na sua máquina.",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "tabCapture", "offscreen", "scripting"],
   "web_accessible_resources": [

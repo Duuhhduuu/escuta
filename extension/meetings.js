@@ -46,6 +46,25 @@ const closeOffscreen = () => chrome.offscreen.closeDocument().catch(() => {});
 const toOffscreen = (message) =>
   chrome.runtime.sendMessage({ target: "offscreen", ...message }).catch((err) => ({ ok: false, message: String(err?.message || err) }));
 
+// ---- registro --------------------------------------------------------------------------
+
+// As últimas etapas da gravação ficam em storage.session e o popup as mostra. Sem isso, quando
+// algo não aparece, ninguém sabe em que passo parou (nem eu, olhando de fora).
+const LOG_KEY = "reclog";
+const LOG_MAX = 40;
+let logChain = Promise.resolve();
+
+function logRec(line) {
+  console.log("[escuta]", line);
+  logChain = logChain
+    .then(async () => {
+      const current = (await chrome.storage.session.get(LOG_KEY))[LOG_KEY] || [];
+      await chrome.storage.session.set({ [LOG_KEY]: [...current, { at: Date.now(), line }].slice(-LOG_MAX) });
+    })
+    .catch(() => {});
+  return logChain;
+}
+
 // ---- painel dentro da aba da reunião ----------------------------------------------------
 
 // dock.js desenha o painel flutuante na página. Só funciona numa aba que a pessoa acabou de
@@ -105,6 +124,8 @@ async function startMeeting({ streamId, tabId, title, template }) {
   if (!canRecord()) return fail("unsupported", "Gravar reunião só funciona no Chrome e no Brave.");
   if (await getRec()) return fail("busy", "Já existe uma gravação em andamento.");
 
+  await chrome.storage.session.remove(LOG_KEY); // o registro é sempre o da última gravação
+  logRec(`pedido para gravar a aba ${tabId} ("${String(title || "").slice(0, 60)}")`);
   const id = crypto.randomUUID();
   const settings = await getSettings();
   // O gravador não tem chrome.storage; o que ele precisa para falar com o servidor vai junto.
@@ -116,11 +137,13 @@ async function startMeeting({ streamId, tabId, title, template }) {
   try {
     await ensureOffscreen();
   } catch (err) {
+    logRec(`gravador: não preparou (${err.message || err})`);
     return fail("offscreen", `Não consegui preparar o gravador: ${err.message || err}`);
   }
   const res = await toOffscreen({ type: "start", streamId, recId: id, live });
   if (!res?.ok) {
     await closeOffscreen();
+    logRec(`gravador: recusou a captura (${res?.name || ""} ${res?.message || "sem resposta"})`);
     return fail("capture", res?.message || "Não consegui capturar o áudio desta aba.");
   }
 
@@ -137,6 +160,10 @@ async function startMeeting({ streamId, tabId, title, template }) {
     language: settings.language,
   });
   setBadge("REC", "#b42318");
+  logRec(
+    `gravando: ${res.mic ? "microfone ok" : `sem microfone (${res.micError || "?"})`}; ` +
+      (settings.live === false ? "ao vivo desligado" : res.live ? "áudio ao vivo ok" : `áudio ao vivo indisponível (${res.liveError || "?"})`),
+  );
 
   // O painel abre sempre que a pessoa pediu o ao vivo, mesmo que o captador de áudio não tenha
   // subido: ele mostra o motivo e as notas continuam servindo.
@@ -145,6 +172,13 @@ async function startMeeting({ streamId, tabId, title, template }) {
     if (res.liveError) await updateLive((cur) => ({ ...cur, id, error: `Texto ao vivo indisponível: ${res.liveError}` }));
     panel = await showLive(tabId);
     await setRec({ ...(await getRec()), ...panel });
+    logRec(
+      panel.dock
+        ? "painel: aberto dentro da aba"
+        : panel.window
+          ? `painel: a página recusou (${panel.dockError}); abri uma janela ao lado`
+          : `painel: não abriu (${panel.dockError})`,
+    );
   }
   return {
     ok: true,
@@ -160,6 +194,7 @@ async function stopMeeting() {
   stopping = true;
   try {
     const res = await toOffscreen({ type: "stop" });
+    logRec(res?.ok ? `parou: ${Math.round(res.duration)} s gravados, ${res.chunks} pedaços` : `parou com aviso: ${res?.message}`);
     await closeOffscreen();
     const written = (await chrome.storage.session.get(NOTES_KEY))[NOTES_KEY];
     const notes = written?.id === rec.id ? String(written.text || "").trim() : "";
@@ -247,6 +282,7 @@ async function writeMinutes(id, template) {
     },
     15 * 60_000,
   );
+  logRec(res.ok ? "ata gerada" : `ata falhou (${res.message || res.code})`);
   await patchMeeting(
     id,
     res.ok
@@ -284,6 +320,7 @@ async function processMeetingNow(id) {
   const result = await transcribeMeeting(blob, settings, (stage, progress) => patchMeeting(id, { stage, progress }));
   if (!result.ok) {
     // O áudio continua guardado: "Tentar de novo" na página de transcrições refaz daqui.
+    logRec(`servidor: falhou (${result.message || result.code})`);
     await patchMeeting(id, { status: "failed", error: result.message || result.code, errorCode: result.code });
     setBadge("!", "#b42318");
     return;
@@ -296,9 +333,45 @@ async function processMeetingNow(id) {
     stage: "minutes",
     progress: 1,
   });
+  logRec(`transcrição pronta: ${result.data.segments.length} trechos`);
   await RecDB.drop(id).catch(() => {}); // a transcrição já está salva; o áudio não precisa mais ficar
   await writeMinutes(id, entry.template);
   setBadge("✓", "#1a8f5a");
+}
+
+// ---- começar sozinho depois da permissão do microfone -------------------------------------------
+
+// A primeira gravação precisa da permissão de microfone, que só dá para pedir numa aba normal. O
+// popup fecha assim que essa aba abre, então a pessoa nunca via o aviso de "grave de novo" e a
+// gravação simplesmente não começava. Agora o popup deixa o pedido guardado, e quando a permissão
+// sai a gravação começa sozinha e a pessoa volta para a reunião.
+const PENDING_KEY = "pendingRec";
+const PENDING_MAX_MS = 5 * 60_000;
+
+async function startFromPending() {
+  const stored = (await chrome.storage.session.get(PENDING_KEY))[PENDING_KEY];
+  await chrome.storage.session.remove(PENDING_KEY);
+  if (!stored || Date.now() - stored.at > PENDING_MAX_MS) return fail("none", "Nenhuma gravação esperando.");
+
+  let streamId;
+  try {
+    streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: stored.tabId });
+  } catch (err) {
+    logRec(`captura da aba ${stored.tabId} recusada (${err.message || err})`);
+    return fail("capture", `Não consegui capturar a aba da reunião (${err.message || err}). Volte a ela, clique no ícone do Escuta e grave de novo.`);
+  }
+  const res = await startMeeting({ streamId, tabId: stored.tabId, title: stored.title, template: stored.template });
+  if (res.ok) {
+    // De volta à reunião, onde o painel já abriu.
+    try {
+      await chrome.tabs.update(stored.tabId, { active: true });
+      const tab = await chrome.tabs.get(stored.tabId);
+      await chrome.windows.update(tab.windowId, { focused: true });
+    } catch {
+      // a aba pode ter fechado; a gravação já está de pé
+    }
+  }
+  return res;
 }
 
 // ---- recuperação ------------------------------------------------------------------
@@ -409,6 +482,14 @@ function meetingHandle(msg) {
       return liveText(msg.lines).then(() => ({ ok: true }));
     case "live-status":
       return liveStatus(msg).then(() => ({ ok: true }));
+    case "rec-pending":
+      return chrome.storage.session
+        .set({ [PENDING_KEY]: { at: Date.now(), tabId: msg.tabId, title: msg.title, template: msg.template } })
+        .then(() => ({ ok: true }));
+    case "mic-granted":
+      return startFromPending();
+    case "rec-log":
+      return chrome.storage.session.get(LOG_KEY).then((s) => ({ ok: true, data: { lines: s[LOG_KEY] || [] } }));
     case "templates":
       return call("/templates", { method: "GET" }, 3_000);
     case "meeting-retry":
