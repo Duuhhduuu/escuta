@@ -6,6 +6,8 @@ cd /d "%~dp0"
 
 if exist .venv\Scripts\python.exe goto :venv_ok
 where py >nul 2>&1 && (set PY=py -3) || (set PY=python)
+REM O instalador (Setup.exe) passa o Python que ele mesmo achou ou instalou.
+if defined ESCUTA_PY set PY=%ESCUTA_PY%
 %PY% --version >nul 2>&1 || (echo Python 3 nao encontrado. Instale em https://python.org e marque "Add to PATH". & exit /b 1)
 echo    Criando o ambiente Python...
 %PY% -m venv .venv || exit /b 1

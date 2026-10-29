@@ -13,6 +13,24 @@ WhatsApp Web ── extensão ──> servidor local (127.0.0.1:8765) ──> Wh
 
 Transcrição: **faster-whisper** no Windows/Linux (usa a GPU NVIDIA quando existe, senão CPU) e **mlx-whisper** no Mac com Apple Silicon. O `setup` escolhe sozinho.
 
+## Instalação rápida
+
+Cole uma linha no terminal. Aparece um assistente que mostra cada etapa (Python, ambiente, modelo Whisper, resumo, servidor e extensão), pergunta antes de instalar e, no fim, copia o caminho da extensão e abre o `chrome://extensions`.
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Duuhhduuu/escuta/main/install.ps1 | iex
+```
+
+**Mac / Linux**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Duuhhduuu/escuta/main/install.sh | bash
+```
+
+Instala em `~/escuta` (mude com `ESCUTA_PASTA`). Pode rodar de novo para atualizar: ele não mexe no seu `.env`. Se preferir o jeito manual, siga as seções abaixo.
+
 ## Baixar
 
 **Sem git (mais simples):** abra <https://github.com/Duuhhduuu/escuta>, clique no botão verde **Code** e depois em **Download ZIP**. Extraia o ZIP e mova a pasta de dentro para um lugar fixo, por exemplo `C:\escuta`. O `instalar.bat` tem que ficar na raiz dessa pasta:
