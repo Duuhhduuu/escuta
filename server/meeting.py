@@ -128,6 +128,27 @@ def format_transcript(segments):
     )
 
 
+# O Whisper, diante de um trecho quase mudo, "escuta" frases de fim de vídeo. Numa janela
+# de poucos segundos isso acontece bastante; na gravação inteira o VAD já segura a maioria.
+HALLUCINATIONS = ("Legendas pela comunidade", "Amara.org", "Obrigado por assistir", "Inscreva-se no canal")
+
+
+def clean_live(segments):
+    """Trechos de uma janela ao vivo que valem mostrar: tira vazio, silêncio com palpite e frase de fim de vídeo."""
+    keep = []
+    for seg in segments:
+        text = seg["text"].strip()
+        if not text:
+            continue
+        if seg.get("no_speech", 0) > 0.6 and seg.get("logprob", 0) < -1.0:
+            continue
+        # Compara dos dois lados já sem pontuação nem maiúscula: "Amara.org" e "amaraorg" são a mesma coisa.
+        if any(_norm(h) in _norm(text) for h in HALLUCINATIONS):
+            continue
+        keep.append({"start": seg["start"], "end": seg["end"], "text": text})
+    return keep
+
+
 def _overlap(a, b):
     return max(0.0, min(a["end"], b["end"]) - max(a["start"], b["start"]))
 

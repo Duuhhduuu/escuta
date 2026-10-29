@@ -4,6 +4,8 @@
 // que é carregado antes deste arquivo.
 const MEETING_PREFIX = "m:";
 const REC_KEY = "rec"; // gravação em andamento; storage.session sobrevive ao service worker dormir
+const LIVE_KEY = "live"; // texto ao vivo da gravação em andamento: { id, lines, error, lag }
+const LIVE_LINES_MAX = 5000;
 
 const canRecord = () => Boolean(chrome.offscreen && chrome.tabCapture);
 
@@ -50,18 +52,24 @@ async function startMeeting({ streamId, tabId, title, template }) {
   if (await getRec()) return fail("busy", "Já existe uma gravação em andamento.");
 
   const id = crypto.randomUUID();
+  const settings = await getSettings();
+  // O gravador não tem chrome.storage; o que ele precisa para falar com o servidor vai junto.
+  const live =
+    settings.live === false
+      ? null
+      : { base: BASE, language: settings.language, model: await resolveModel(settings.whisperModel), token: await getToken() };
+  await chrome.storage.session.remove(LIVE_KEY); // texto ao vivo da reunião anterior
   try {
     await ensureOffscreen();
   } catch (err) {
     return fail("offscreen", `Não consegui preparar o gravador: ${err.message || err}`);
   }
-  const res = await toOffscreen({ type: "start", streamId, recId: id });
+  const res = await toOffscreen({ type: "start", streamId, recId: id, live });
   if (!res?.ok) {
     await closeOffscreen();
     return fail("capture", res?.message || "Não consegui capturar o áudio desta aba.");
   }
 
-  const settings = await getSettings();
   await setRec({
     state: "recording",
     id,
@@ -71,10 +79,11 @@ async function startMeeting({ streamId, tabId, title, template }) {
     startedAt: Date.now(),
     mic: res.mic,
     micError: res.micError || null,
+    live: Boolean(res.live),
     language: settings.language,
   });
   setBadge("REC", "#b42318");
-  return { ok: true, data: { id, mic: res.mic, micError: res.micError || null } };
+  return { ok: true, data: { id, mic: res.mic, micError: res.micError || null, live: Boolean(res.live) } };
 }
 
 let stopping = false;
@@ -265,6 +274,33 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (rec?.tabId === tabId) stopMeeting();
 });
 
+// ---- texto ao vivo -------------------------------------------------------------------
+
+// Vários trechos podem chegar quase juntos; cada um lê, soma e grava, então entram em fila.
+let liveChain = Promise.resolve();
+
+function updateLive(change) {
+  liveChain = liveChain
+    .then(async () => {
+      const current = (await chrome.storage.session.get(LIVE_KEY))[LIVE_KEY] || { id: null, lines: [], error: null, lag: false };
+      await chrome.storage.session.set({ [LIVE_KEY]: change(current) });
+    })
+    .catch((err) => console.warn("[escuta] ao vivo:", err));
+  return liveChain;
+}
+
+async function liveText(lines) {
+  const rec = await getRec();
+  if (!rec?.live || !Array.isArray(lines)) return; // chegou depois de parar, ou ninguém pediu
+  await updateLive((cur) => ({ ...cur, id: rec.id, lines: [...cur.lines, ...lines].slice(-LIVE_LINES_MAX) }));
+}
+
+async function liveStatus({ error, lag }) {
+  const rec = await getRec();
+  if (!rec?.live) return;
+  await updateLive((cur) => ({ ...cur, id: rec.id, error: error === undefined ? cur.error : error, lag: lag ?? (error === null ? false : cur.lag) }));
+}
+
 // ---- mensagens ---------------------------------------------------------------------
 
 function meetingHandle(msg) {
@@ -292,6 +328,10 @@ function meetingHandle(msg) {
     case "rec-stop":
     case "rec-ended": // o gravador avisa que a captura da aba terminou
       return stopMeeting();
+    case "live-text":
+      return liveText(msg.lines).then(() => ({ ok: true }));
+    case "live-status":
+      return liveStatus(msg).then(() => ({ ok: true }));
     case "templates":
       return call("/templates", { method: "GET" }, 3_000);
     case "meeting-retry":

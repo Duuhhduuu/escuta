@@ -143,6 +143,7 @@ Além das mensagens do WhatsApp, o Escuta grava reuniões online (Google Meet, T
 
 Como funciona: a extensão grava o áudio da aba e o seu microfone **em canais separados** do mesmo arquivo. O servidor transcreve cada canal sozinho e junta por horário, então sabe o que foi você e o que foram os outros sem adivinhar vozes. A ata é gerada pelo Gemini ou pelo Ollama, o mesmo dos resumos.
 
+- **Transcrição ao vivo:** ao começar a gravar abre uma janelinha no canto direito da tela, para você deixar ao lado da reunião, com o texto aparecendo conforme as pessoas falam, uns 1 a 2 s depois da frase. O áudio é cortado nas pausas da fala (não de tempo em tempo), então as frases saem inteiras. É uma prévia: a transcrição final, mais precisa, vem ao parar. Dá para desligar em **Mostrar a transcrição ao vivo**, e **Abrir a transcrição ao vivo** no popup reabre a janela se você a fechar. Se o servidor não responder, a janela avisa e a gravação continua.
 - **Use fones de ouvido.** Sem fone, o microfone também capta o alto-falante. O servidor descarta o que for repetição do que saiu da aba, mas fone é mais limpo.
 - A gravação é salva no disco do navegador a cada 10 s. Se o servidor estiver desligado ao parar, ou o navegador cair, o áudio não se perde: a reunião aparece com **Tentar de novo**.
 - Fechar a aba da reunião encerra a gravação e gera a ata com o que foi gravado.

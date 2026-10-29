@@ -63,6 +63,38 @@ class Transcript(unittest.TestCase):
         self.assertEqual(text, "[00:01] Você: Oi\n[01:05] Participantes: Olá")
 
 
+class Live(unittest.TestCase):
+    def test_keeps_real_speech_and_trims(self):
+        out = meeting.clean_live([{"start": 0.0, "end": 2.0, "text": " Bom dia a todos. ", "no_speech": 0.01, "logprob": -0.2}])
+        self.assertEqual(out, [{"start": 0.0, "end": 2.0, "text": "Bom dia a todos."}])
+
+    def test_drops_empty_and_silence_guesses(self):
+        out = meeting.clean_live(
+            [
+                {"start": 0, "end": 1, "text": "   "},
+                {"start": 1, "end": 2, "text": "Obrigado.", "no_speech": 0.9, "logprob": -1.8},
+            ]
+        )
+        self.assertEqual(out, [])
+
+    def test_unsure_but_speech_is_kept(self):
+        # no_speech alto sozinho não basta: precisa também de pouca confiança no texto.
+        out = meeting.clean_live([{"start": 0, "end": 2, "text": "Sim", "no_speech": 0.7, "logprob": -0.3}])
+        self.assertEqual(len(out), 1)
+
+    def test_drops_end_of_video_phrases(self):
+        out = meeting.clean_live(
+            [
+                {"start": 0, "end": 2, "text": "Legendas pela comunidade Amara.org", "no_speech": 0.1, "logprob": -0.5},
+                {"start": 2, "end": 4, "text": "Subtitles by the Amara.org community", "no_speech": 0.1, "logprob": -0.5},
+            ]
+        )
+        self.assertEqual(out, [])
+
+    def test_missing_scores_do_not_break(self):
+        self.assertEqual(len(meeting.clean_live([{"start": 0, "end": 1, "text": "ok"}])), 1)
+
+
 class Merge(unittest.TestCase):
     def test_orders_by_time_and_labels_channels(self):
         out = meeting.merge_channels(

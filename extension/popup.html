@@ -22,6 +22,10 @@
           <span>Modelo da ata</span>
           <select id="template"></select>
         </label>
+        <label class="check">
+          <input id="live" type="checkbox" />
+          <span>Mostrar a transcrição ao vivo numa janela ao lado</span>
+        </label>
         <button type="button" id="rec-start" class="rec-btn">Gravar esta aba</button>
         <p class="note">
           Grava o áudio da aba (Meet, Teams, Zoom…) e o seu microfone. Use fones de ouvido: assim a sua voz não
@@ -34,6 +38,7 @@
         <p class="live"><span class="rec-dot" aria-hidden="true"></span><b id="rec-clock">0:00</b><span id="rec-title"></span></p>
         <p class="note" id="rec-mic"></p>
         <button type="button" id="rec-stop" class="rec-btn rec-btn--stop">Parar e gerar a ata</button>
+        <button type="button" id="rec-live-open" class="secondary" hidden>Abrir a transcrição ao vivo</button>
       </div>
 
       <div id="rec-busy" hidden>

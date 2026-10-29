@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Escuta · ao vivo</title>
+    <link rel="stylesheet" href="live.css" />
+  </head>
+  <body>
+    <header>
+      <div class="top">
+        <span class="dot" id="dot" aria-hidden="true"></span>
+        <h1 id="title">Ao vivo</h1>
+        <b id="clock" class="clock"></b>
+      </div>
+      <p id="status" class="status" role="status"></p>
+      <div class="actions">
+        <button type="button" id="stop" class="stop" hidden>Parar e gerar a ata</button>
+        <button type="button" id="open" class="primary" hidden>Abrir a ata</button>
+        <button type="button" id="copy">Copiar</button>
+      </div>
+    </header>
+
+    <main id="feed" aria-live="polite" aria-label="Transcrição ao vivo"></main>
+    <button type="button" id="jump" class="jump" hidden>↓ Novas falas</button>
+
+    <footer>Prévia ao vivo. A transcrição final, mais precisa, aparece quando você parar.</footer>
+
+    <script src="live.js"></script>
+  </body>
+</html>

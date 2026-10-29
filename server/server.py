@@ -4,6 +4,7 @@
 POST /transcribe   raw audio body  -> {"text", "language", "duration"}   (Whisper)
      ?stream=1                     -> NDJSON, one {"segment"} per chunk, then {"done", ...}
 POST /summarize    {"text", ...}   -> {"summary"}            (Ollama or Gemini)
+POST /live         PCM 16 kHz mono -> {"segments"}   (janela curta, para a transcrição ao vivo)
 POST /meeting      stereo audio    -> NDJSON, {"stage"} e no fim {"done", "segments"}
                                       (esquerda = você, direita = os outros)
 POST /minutes      {"segments" ou "transcript", "template"} -> {"minutes"}   (ata em Markdown)
@@ -72,6 +73,7 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 # so other local processes cannot use the server. Same value in the popup.
 TOKEN = os.environ.get("ESCUTA_TOKEN", "").strip()
 MAX_BODY = 50 * 1024 * 1024
+MAX_LIVE = 8 * 1024 * 1024  # uma janela de 15 s a 16 kHz em 16 bits tem 480 KB; isto é folga
 MAX_MEETING = 400 * 1024 * 1024  # ~64 kbps estéreo dá uns 30 MB por hora; isso cobre reunião de várias horas
 SILENT_RMS = 1e-4  # canal sem nada (microfone negado): nem passa pelo Whisper, que inventaria texto
 BATCH_SIZE = int(os.environ.get("ESCUTA_BATCH", "16"))  # VRAM vs speed; 16 fits comfortably in 8 GB
@@ -412,6 +414,67 @@ def split_channels(path):
         return both[0::2], both[1::2]
 
 
+def transcribe_live(pcm, model, language, prompt):
+    """Uma janela curta (PCM de 16 bits, 16 kHz, mono) vira trechos com horário relativo à janela.
+    É o que alimenta a transcrição ao vivo: rápido e sem a conferência que a gravação inteira recebe."""
+    engine = whisper_engine()
+    if engine is None:
+        raise ApiError(503, "whisper_missing", f"Whisper não está instalado. {SETUP_HINT}")
+    import numpy as np
+
+    samples = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
+    if not len(samples):
+        return []
+    model = canonical_model(model)
+    language = None if language == "auto" else language
+    prompt = (prompt or "").strip()[-220:] or None  # o fim da fala anterior: ajuda nomes e a pontuação a continuar
+
+    def job():
+        global _cuda_broken
+        if engine == "mlx":
+            import mlx_whisper
+
+            out = mlx_whisper.transcribe(
+                samples,
+                path_or_hf_repo=MLX_REPOS.get(model, model),
+                language=language,
+                condition_on_previous_text=False,
+                initial_prompt=prompt,
+            )
+            return [
+                {"start": s["start"], "end": s["end"], "text": s["text"], "no_speech": s.get("no_speech_prob", 0), "logprob": s.get("avg_logprob", 0)}
+                for s in out.get("segments") or []
+            ]
+
+        name = model
+        for suffix in ("-q4", "-4bit", "-8bit", "-fp16"):
+            name = name.removesuffix(suffix)
+
+        def run(device, compute):
+            loaded = load_faster(name, device, compute)
+            whisper = loaded[0].model if loaded[1] else loaded[0]  # janela curta: o modo sequencial, sem lote
+            segments, _ = whisper.transcribe(
+                samples, language=language, vad_filter=True, condition_on_previous_text=False, initial_prompt=prompt
+            )
+            return [
+                {"start": s.start, "end": s.end, "text": s.text, "no_speech": s.no_speech_prob, "logprob": s.avg_logprob}
+                for s in segments
+            ]
+
+        forced, device, compute = faster_device()
+        try:
+            return run(device, compute)
+        except Exception as exc:
+            if device != "cuda" or forced:
+                raise
+            print(f"[escuta] CUDA falhou ({exc}); refazendo na CPU.", flush=True)
+            _cuda_broken = True
+            _faster_models.clear()
+            return run("cpu", "int8")
+
+    return meeting.clean_live(whisper_worker.submit(job).result())
+
+
 def transcribe_meeting(audio, model, language, emit):
     """Transcreve cada canal sozinho e junta por horário. emit({"stage", ...}) avisa o andamento."""
     engine = whisper_engine()
@@ -731,6 +794,12 @@ class Handler(BaseHTTPRequestHandler):
                 return {"summary": summarize(text, payload.get("model") or DEFAULT_OLLAMA)}
 
             self._guard(run)
+        elif url.path == "/live":
+            query = parse_qs(url.query)
+            model = query.get("model", [DEFAULT_WHISPER])[0]
+            language = query.get("language", ["pt"])[0]
+            prompt = query.get("prompt", [""])[0]
+            self._guard(lambda: {"segments": transcribe_live(self._read_body(MAX_LIVE), model, language, prompt)})
         elif url.path == "/meeting":
             query = parse_qs(url.query)
             model = query.get("model", [DEFAULT_WHISPER])[0]

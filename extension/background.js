@@ -4,6 +4,7 @@ const DEFAULTS = {
   language: "pt",
   whisperModel: "large-v3-turbo",
   ollamaModel: "qwen2.5:7b",
+  live: true, // transcrição ao vivo durante a reunião
 };
 
 const getSettings = () => chrome.storage.sync.get(DEFAULTS);

@@ -179,6 +179,7 @@ async function refreshRec() {
     $("rec-mic").textContent = rec.mic
       ? "Gravando o áudio da aba e o seu microfone."
       : "Sem microfone: só o áudio da aba está sendo gravado. Se quiser a sua voz, pare, permita o microfone e grave de novo.";
+    $("rec-live-open").hidden = !rec.live;
     showRec("rec-live");
   } else {
     showRec("rec-idle");
@@ -231,8 +232,34 @@ $("rec-start").addEventListener("click", async () => {
   const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value });
   $("rec-start").disabled = false;
   if (!res?.ok) return showRecError(res?.message || "Não consegui começar a gravar.");
+  if (res.data.live) await openLive();
   refreshRec();
 });
+
+// A janela fica ao lado da reunião, no canto direito da tela. Se já existe, só vem para a frente.
+async function openLive() {
+  const url = chrome.runtime.getURL("live.html");
+  const [existing] = await chrome.tabs.query({ url }).catch(() => []);
+  if (existing) return chrome.windows.update(existing.windowId, { focused: true });
+  const width = 400;
+  const height = Math.min(760, screen.availHeight - 80);
+  return chrome.windows.create({
+    url,
+    type: "popup",
+    width,
+    height,
+    left: (screen.availLeft || 0) + screen.availWidth - width - 20,
+    top: (screen.availTop || 0) + 40,
+  });
+}
+
+$("rec-live-open").addEventListener("click", async () => {
+  await openLive();
+  window.close();
+});
+
+chrome.storage.sync.get({ live: true }).then(({ live }) => ($("live").checked = live));
+$("live").addEventListener("change", () => chrome.storage.sync.set({ live: $("live").checked }));
 
 $("rec-stop").addEventListener("click", async () => {
   $("rec-stop").disabled = true;
