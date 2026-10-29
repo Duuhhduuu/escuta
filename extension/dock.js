@@ -22,16 +22,25 @@
     }
     .panel iframe { display: block; width: 100%; height: 100%; border: 0; color-scheme: normal; }
     .pill {
-      position: fixed; right: 16px; bottom: 96px; z-index: 2147483647; width: 52px; height: 52px;
-      display: none; align-items: center; justify-content: center; border: 0; border-radius: 50%;
-      background: #ffc53d; color: #0e1424; cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      position: fixed; right: 16px; bottom: 96px; z-index: 2147483647; width: 52px; height: 52px; box-sizing: border-box;
+      display: none; align-items: center; justify-content: center; padding: 0; border-radius: 50%;
+      background: #161d32; color: #ffc53d; border: 1px solid #2a3354; cursor: pointer; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
     }
+    .pill::after {
+      content: ""; position: absolute; top: -2px; right: -2px; width: 11px; height: 11px; box-sizing: border-box;
+      border-radius: 50%; background: #ff6b5b; border: 2px solid #161d32; animation: blink 1.2s steps(1) infinite;
+    }
+    @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.15; } }
     .pill:hover { filter: brightness(1.1); }
     .pill:focus-visible { outline: 3px solid #f6f4ef; outline-offset: 2px; }
     .pill svg { width: 30px; height: 30px; }
     .pill .bar { stroke: #0e1424; }
     .pill .cur { stroke: #3347ff; }
-    @media (prefers-color-scheme: light) { .pill .bar { stroke: #fff; } .pill .cur { stroke: #ffc53d; } }
+    @media (prefers-color-scheme: light) {
+      .pill { background: #fff; color: #0e1424; border-color: #dad6cb; }
+      .pill::after { border-color: #fff; background: #d92d20; }
+      .pill .bar { stroke: #fff; } .pill .cur { stroke: #ffc53d; }
+    }
     .minimized .panel { display: none; }
     .minimized .pill { display: flex; }
     @media (prefers-reduced-motion: no-preference) { .panel { animation: in 160ms ease-out; } }
