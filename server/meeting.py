@@ -2,7 +2,7 @@
 dois canais e divisão de transcrição longa. Fica fora do server.py para poder
 ser testada sem GPU (test_meeting.py).
 
-Os modelos em templates/ vêm do Meetily (MIT); veja templates/CREDITS.md.
+Os modelos de ata ficam em templates/ (um .json por modelo).
 """
 import difflib
 import json

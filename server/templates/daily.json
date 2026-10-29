@@ -1,38 +1,30 @@
 {
   "name": "Daily",
-  "description": "Atualização rápida de equipe: ontem, hoje e bloqueios.",
+  "description": "Reunião rápida de equipe: o que andou, o que vem agora e o que está travado.",
   "sections": [
     {
-      "title": "Data",
-      "instruction": "Data da reunião no formato AAAA-MM-DD, se for citada",
-      "format": "string"
-    },
-    {
-      "title": "Participantes",
-      "instruction": "Quem participou",
+      "title": "Quem falou",
+      "instruction": "Os nomes de quem participou, quando forem citados na conversa",
       "format": "list"
     },
     {
-      "title": "Ontem",
-      "instruction": "O que cada pessoa concluiu (tópicos curtos)",
-      "format": "list",
-      "item_format": "| **Pessoa** | **Concluído** |\n| --- | --- |"
+      "title": "O que andou",
+      "instruction": "O que cada pessoa disse ter feito desde a última vez, uma linha por pessoa",
+      "format": "list"
     },
     {
-      "title": "Hoje",
-      "instruction": "O que cada pessoa planeja fazer (tópicos curtos)",
-      "format": "list",
-      "item_format": "| **Pessoa** | **Planejado** |\n| --- | --- |"
+      "title": "O que vem agora",
+      "instruction": "O que cada pessoa pretende fazer a seguir, uma linha por pessoa",
+      "format": "list"
     },
     {
-      "title": "Bloqueios",
-      "instruction": "Impedimentos e quem é o responsável, se for dito",
-      "format": "list",
-      "item_format": "| **Pessoa** | **Bloqueio** | **Impacto** |\n| --- | --- | --- |"
+      "title": "O que está travado",
+      "instruction": "Impedimentos citados e, se alguém se ofereceu para ajudar, quem",
+      "format": "list"
     },
     {
       "title": "Avisos",
-      "instruction": "Avisos ou comunicados rápidos, se houver",
+      "instruction": "Recados gerais, folgas, mudanças de data ou qualquer informação que não se encaixe nas seções acima",
       "format": "paragraph"
     }
   ]

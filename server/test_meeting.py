@@ -35,13 +35,14 @@ class Templates(unittest.TestCase):
     def test_missing_folder_is_empty(self):
         self.assertEqual(meeting.load_templates("/nao/existe"), {})
 
-    def test_prompt_lists_every_section_and_table(self):
+    def test_prompt_lists_every_section_and_instruction(self):
         template = meeting.load_templates()["reuniao"]
         prompt = meeting.minutes_prompt(template, "pt")
         for section in template["sections"]:
             self.assertIn(section["title"], prompt)
         self.assertIn("português do Brasil", prompt)
-        self.assertIn("| **Responsável**", prompt)  # o formato da tabela de ações vai junto
+        for section in template["sections"]:
+            self.assertIn(section["instruction"].rstrip("."), prompt)  # a instrução de cada seção vai junto
 
     def test_notes_rule_only_when_there_are_notes(self):
         template = meeting.load_templates()["reuniao"]
