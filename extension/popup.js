@@ -151,6 +151,8 @@ const fmtClock = (ms) => {
 };
 
 let recStart = 0;
+let curRec = null;
+const recElapsed = (r) => (r.paused ? r.pausedAt : Date.now()) - r.startedAt - (r.pausedMs || 0);
 let latestId = "";
 
 // Gravando ou livre. A faixa "gerando a ata" é à parte: dá para gravar a próxima reunião
@@ -174,6 +176,7 @@ async function refreshRec() {
 
   const rec = res.data.rec;
   if (rec?.state === "recording") {
+    curRec = rec;
     recStart = rec.startedAt;
     $("rec-title").textContent = rec.title;
     const where =
@@ -187,7 +190,7 @@ async function refreshRec() {
     $("rec-mic").textContent =
       (rec.mic
         ? "Gravando o áudio da aba e o seu microfone."
-        : "Sem microfone: só o áudio da aba está sendo gravado. Se quiser a sua voz, pare, permita o microfone e grave de novo.") + where;
+        : "Gravando só o áudio da aba (sem o seu microfone). Para incluir a sua voz, permita o microfone e grave de novo.") + where;
     $("rec-live-open").hidden = !rec.live;
     showRec("rec-live");
   } else {
@@ -229,15 +232,9 @@ $("rec-start").addEventListener("click", async () => {
     return showRecError("Abra a aba da reunião, clique no ícone do Escuta nela e grave de novo.");
   }
 
-  // A permissão de microfone não aparece no gravador invisível: pede uma vez numa aba normal.
+  // Grava na hora. O microfone é um extra: sem permissão, grava só o áudio da aba.
   const mic = await navigator.permissions.query({ name: "microphone" }).catch(() => null);
-  if (mic?.state === "prompt") {
-    // Deixa o pedido guardado: assim que a permissão sair, a gravação começa sozinha (o popup
-    // fecha quando a aba abre, então não há onde pedir para "gravar de novo").
-    await chrome.runtime.sendMessage({ type: "rec-pending", tabId: tab.id, title: tab.title, template: $("template").value });
-    await chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
-    return showRecError("Permita o microfone na aba que abriu. A gravação começa sozinha.");
-  }
+  const micGranted = mic?.state === "granted";
 
   let streamId;
   try {
@@ -246,7 +243,7 @@ $("rec-start").addEventListener("click", async () => {
     return showRecError(`Não consegui capturar esta aba: ${err.message || err}`);
   }
   $("rec-start").disabled = true;
-  const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value });
+  const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value, mic: micGranted });
   $("rec-start").disabled = false;
   if (!res?.ok) return showRecError(res?.message || "Não consegui começar a gravar.");
   // O painel entra na própria aba da reunião; se a página não deixar, cai para uma janela solta.
@@ -262,12 +259,36 @@ $("rec-live-open").addEventListener("click", async () => {
 
 chrome.storage.sync.get({ live: true }).then(({ live }) => ($("live").checked = live));
 $("live").addEventListener("change", () => chrome.storage.sync.set({ live: $("live").checked }));
+chrome.storage.sync.get({ autoMeet: false }).then(({ autoMeet }) => ($("autoMeet").checked = autoMeet));
+$("autoMeet").addEventListener("change", () => chrome.storage.sync.set({ autoMeet: $("autoMeet").checked }));
 
 $("rec-stop").addEventListener("click", async () => {
-  $("rec-stop").disabled = true;
-  await chrome.runtime.sendMessage({ type: "rec-stop" });
-  $("rec-stop").disabled = false;
-  refreshRec();
+  // Parar tem janela para desfazer; o segundo clique cancela.
+  await chrome.runtime.sendMessage({ type: curRec?.stopAt ? "rec-stop-cancel" : "rec-stop-soon" });
+  await refreshRec();
+});
+
+$("rec-pause").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: curRec?.paused ? "rec-resume" : "rec-pause" });
+  await refreshRec();
+});
+
+let discardArmed = 0;
+$("rec-discard").addEventListener("click", async () => {
+  if (!discardArmed) {
+    // Apagar é irreversível: pede um segundo clique, como o Apagar das transcrições.
+    $("rec-discard").textContent = "Clique de novo para descartar de vez";
+    discardArmed = setTimeout(() => {
+      discardArmed = 0;
+      $("rec-discard").textContent = "Descartar esta gravação";
+    }, 4000);
+    return;
+  }
+  clearTimeout(discardArmed);
+  discardArmed = 0;
+  $("rec-discard").textContent = "Descartar esta gravação";
+  await chrome.runtime.sendMessage({ type: "rec-discard" });
+  await refreshRec();
 });
 
 $("rec-log-copy").addEventListener("click", async () => {
@@ -286,7 +307,13 @@ $("rec-open").addEventListener("click", () => {
 });
 
 setInterval(() => {
-  if (!$("rec-live").hidden) $("rec-clock").textContent = fmtClock(Date.now() - recStart);
+  if ($("rec-live").hidden || !curRec) return;
+  $("rec-clock").textContent = fmtClock(recElapsed(curRec));
+  const left = curRec.stopAt ? Math.max(0, Math.ceil((curRec.stopAt - Date.now()) / 1000)) : 0;
+  $("rec-stop").textContent = curRec.stopAt ? `Desfazer (${left})` : "Parar e gerar a ata";
+  $("rec-pause").textContent = curRec.paused ? "Retomar" : "Pausar";
+  $("rec-pause").hidden = Boolean(curRec.stopAt);
+  if (curRec.stopAt && left === 0) chrome.runtime.sendMessage({ type: "rec-stop" }).catch(() => {});
 }, 500);
 setInterval(refreshRec, 2000);
 
@@ -295,3 +322,17 @@ checkHealth();
 checkPage();
 refreshRec();
 loadTemplates();
+
+// Microfone opcional: só mostra o convite enquanto ainda não foi liberado.
+navigator.permissions
+  .query({ name: "microphone" })
+  .then((status) => {
+    const sync = () => ($("mic-allow").hidden = status.state === "granted");
+    sync();
+    status.addEventListener("change", sync);
+  })
+  .catch(() => {});
+$("mic-allow").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
+  window.close();
+});

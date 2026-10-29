@@ -31,13 +31,17 @@ function setBadge(text, color) {
 
 // ---- documento offscreen ------------------------------------------------------
 
-async function ensureOffscreen() {
+async function ensureOffscreen(source) {
   const open = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
   if (open.length) return;
+  // O Chrome fecha, depois de 30 s sem tocar som, um documento criado com AUDIO_PLAYBACK. Na aba, o
+  // gravador toca o som de volta, então vale. Na chamada do Meet quem toca é a página: o gravador
+  // não toca nada, e com esse motivo ele seria fechado no meio da reunião.
+  const page = source === "page";
   await chrome.offscreen.createDocument({
     url: "recorder.html",
-    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
-    justification: "Gravar o áudio da reunião e manter o som da aba tocando enquanto grava.",
+    reasons: page ? ["USER_MEDIA"] : ["USER_MEDIA", "AUDIO_PLAYBACK"],
+    justification: page ? "Gravar o áudio da chamada do Meet." : "Gravar o áudio da reunião e manter o som da aba tocando enquanto grava.",
   });
 }
 
@@ -120,7 +124,7 @@ async function showLive(tabId) {
 
 // ---- gravar ---------------------------------------------------------------------
 
-async function startMeeting({ streamId, tabId, title, template }) {
+async function startMeeting({ streamId, tabId, title, template, mic, source }) {
   if (!canRecord()) return fail("unsupported", "Gravar reunião só funciona no Chrome e no Brave.");
   if (await getRec()) return fail("busy", "Já existe uma gravação em andamento.");
 
@@ -135,20 +139,32 @@ async function startMeeting({ streamId, tabId, title, template }) {
       : { base: BASE, language: settings.language, model: await resolveModel(settings.whisperModel), token: await getToken() };
   await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY]); // texto e notas da reunião anterior
   try {
-    await ensureOffscreen();
+    await ensureOffscreen(source);
   } catch (err) {
     logRec(`gravador: não preparou (${err.message || err})`);
     return fail("offscreen", `Não consegui preparar o gravador: ${err.message || err}`);
   }
-  const res = await toOffscreen({ type: "start", streamId, recId: id, live });
+  const res = await toOffscreen({ type: "start", streamId, recId: id, live, mic, source });
   if (!res?.ok) {
     await closeOffscreen();
     logRec(`gravador: recusou a captura (${res?.name || ""} ${res?.message || "sem resposta"})`);
     return fail("capture", res?.message || "Não consegui capturar o áudio desta aba.");
   }
 
+  if (source === "page") {
+    // O gravador está de pé; agora a página começa a mandar o áudio.
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: "meet-capture", action: "start" });
+    } catch (err) {
+      await toOffscreen({ type: "stop" });
+      await closeOffscreen();
+      logRec(`página do Meet não respondeu (${err.message || err}); recarregue o Meet e tente de novo`);
+      return fail("page", "A página do Meet não respondeu. Recarregue o Meet e tente de novo.");
+    }
+  }
   await setRec({
     state: "recording",
+    source: source || "tab",
     id,
     tabId,
     title: (title || "Reunião").slice(0, 120),
@@ -188,11 +204,67 @@ async function startMeeting({ streamId, tabId, title, template }) {
 
 let stopping = false;
 
+// Parar não é imediato: há uma janela para desfazer (como "desfazer envio" do e-mail). A gravação
+// continua durante ela; o painel e o popup mostram a contagem e o botão Desfazer.
+const STOP_DELAY_MS = 8000;
+let stopTimer = 0;
+
+async function stopSoon() {
+  const rec = await getRec();
+  if (!rec) return fail("idle", "Nenhuma gravação em andamento.");
+  const stopAt = Date.now() + STOP_DELAY_MS;
+  await setRec({ ...rec, stopAt });
+  clearTimeout(stopTimer);
+  stopTimer = setTimeout(() => stopMeeting().catch(() => {}), STOP_DELAY_MS + 300);
+  return { ok: true, data: { stopAt } };
+}
+
+async function stopCancel() {
+  const rec = await getRec();
+  clearTimeout(stopTimer);
+  if (rec?.stopAt) await setRec({ ...rec, stopAt: null });
+  return { ok: true, data: {} };
+}
+
+async function pauseMeeting(pause) {
+  const rec = await getRec();
+  if (!rec) return fail("idle", "Nenhuma gravação em andamento.");
+  if (Boolean(rec.paused) === pause) return { ok: true, data: {} };
+  const res = await toOffscreen({ type: pause ? "pause" : "resume" });
+  if (!res?.ok) {
+    logRec(`${pause ? "pausar" : "retomar"} não deu: ${res?.message || "o gravador não respondeu"}`);
+    return fail("pause", res?.message || "O gravador não respondeu. Pare a gravação e comece de novo.");
+  }
+  const now = Date.now();
+  await setRec({ ...rec, paused: pause, pausedAt: pause ? now : null, pausedMs: (rec.pausedMs || 0) + (pause ? 0 : now - rec.pausedAt) });
+  setBadge(pause ? "II" : "REC", pause ? "#c98a00" : "#b42318");
+  logRec(pause ? "gravação pausada" : "gravação retomada");
+  return { ok: true, data: {} };
+}
+
+// Gravou sem querer (ou sem querer que ficasse): joga fora, sem ata e sem deixar nada no disco.
+async function discardMeeting() {
+  const rec = await getRec();
+  if (!rec) return fail("idle", "Nenhuma gravação em andamento.");
+  clearTimeout(stopTimer);
+  if (rec.source === "page") await chrome.tabs.sendMessage(rec.tabId, { type: "meet-capture", action: "stop" }).catch(() => {});
+  await toOffscreen({ type: "stop" });
+  await closeOffscreen();
+  await RecDB.drop(rec.id).catch(() => {});
+  await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY]);
+  await setRec(null);
+  setBadge("", null);
+  logRec("gravação descartada pela pessoa");
+  return { ok: true, data: {} };
+}
+
 async function stopMeeting() {
   const rec = await getRec();
   if (!rec || stopping) return fail("idle", "Nenhuma gravação em andamento.");
   stopping = true;
+  clearTimeout(stopTimer);
   try {
+    if (rec.source === "page") await chrome.tabs.sendMessage(rec.tabId, { type: "meet-capture", action: "stop" }).catch(() => {});
     const res = await toOffscreen({ type: "stop" });
     logRec(res?.ok ? `parou: ${Math.round(res.duration)} s gravados, ${res.chunks} pedaços` : `parou com aviso: ${res?.message}`);
     await closeOffscreen();
@@ -416,6 +488,25 @@ chrome.runtime.onStartup.addListener(() => recoverOrphans().catch(() => {}));
 // Também quando o service worker acorda sozinho (extensão recarregada, por exemplo).
 recoverOrphans().catch(() => {});
 
+// Chamada do Meet começou ou terminou (meet-hook.js, na página). Com a gravação automática ligada,
+// começa e termina sozinha; sem ela, nada acontece.
+async function meetCall(msg, sender) {
+  const tabId = sender.tab?.id;
+  if (tabId == null) return;
+  const rec = await getRec();
+  if (msg.state === "started") {
+    if (rec || !canRecord()) return;
+    const { autoMeet, template } = await chrome.storage.sync.get({ autoMeet: false, template: "reuniao" });
+    if (!autoMeet) return;
+    logRec(`chamada do Meet começou na aba ${tabId}: gravando sozinho`);
+    const res = await startMeeting({ source: "page", tabId, title: sender.tab.title || msg.title || "Reunião do Meet", template });
+    if (!res.ok) logRec(`gravação automática não começou: ${res.message}`);
+  } else if (msg.state === "ended" && rec?.source === "page" && rec.tabId === tabId) {
+    logRec("chamada do Meet terminou: parando e gerando a ata");
+    stopMeeting();
+  }
+}
+
 // A aba da reunião fechou: encerra e gera a ata com o que foi gravado.
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const rec = await getRec();
@@ -469,10 +560,21 @@ function meetingHandle(msg) {
           const badge = await chrome.action.getBadgeText({});
           if (badge === "✓" || badge === "!") setBadge("", null); // quem abre o popup já viu
         }
+        if (rec?.stopAt && Date.now() >= rec.stopAt && !stopping) stopMeeting().catch(() => {});
         return { ok: true, data: { canRecord: canRecord(), rec } };
       })();
     case "rec-start":
       return startMeeting(msg);
+    case "rec-stop-soon":
+      return stopSoon();
+    case "rec-stop-cancel":
+      return stopCancel();
+    case "rec-pause":
+      return pauseMeeting(true);
+    case "rec-resume":
+      return pauseMeeting(false);
+    case "rec-discard":
+      return discardMeeting();
     case "rec-stop":
     case "rec-ended": // o gravador avisa que a captura da aba terminou
       return stopMeeting();
