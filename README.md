@@ -120,6 +120,12 @@ Em áudio longo o texto aparece aos poucos, trecho a trecho, enquanto o resto ai
 
 As transcrições (e os resumos) ficam salvas no navegador. Recarregar o WhatsApp ou voltar a uma conversa mostra o texto na hora, sem transcrever de novo. **Recolher** esconde o cartão e deixa só uma pílula, que reabre num clique (fica recolhido mesmo depois de recarregar). **Apagar** pede um segundo clique e apaga a transcrição salva daquela mensagem.
 
+### Pesquisar transcrições
+
+No ícone da extensão, **Pesquisar transcrições** abre uma página com tudo que já foi transcrito, do mais recente para o mais antigo. A busca ignora acento e maiúscula ("reuniao" acha "Reunião"), aceita várias palavras e procura no texto, no resumo, no nome da conversa e em quem mandou. Dá para filtrar por conversa, copiar e apagar.
+
+A conversa e quem mandou passaram a ser guardados na versão 1.4. Transcrições anteriores aparecem em "Sem conversa (salvas antes)". Tudo fica no navegador; nada vai para o servidor.
+
 No ícone da extensão:
 
 - **Transcrever sozinho o áudio mais recente recebido** (desligado por padrão): quando o último recado da conversa aberta é um áudio recebido, ele é transcrito sem clique. Vale para o que acabou de chegar e para o último ao abrir a conversa; áudios mais antigos continuam no botão. Como a extensão toca o áudio sem som para copiá-lo, ele fica marcado como ouvido.
