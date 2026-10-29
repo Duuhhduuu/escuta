@@ -133,6 +133,29 @@ No ícone da extensão:
 
 O ícone da extensão mostra o estado do servidor, do Whisper (e qual motor está em uso) e do Ollama, e deixa trocar idioma e modelos.
 
+## Reuniões
+
+Além das mensagens do WhatsApp, o Escuta grava reuniões online (Google Meet, Teams, Zoom no navegador…) e escreve a ata.
+
+1. Abra a aba da reunião e clique no ícone do Escuta **nessa aba**.
+2. Em **Reunião**, escolha o modelo da ata e clique em **Gravar esta aba**. Na primeira vez o navegador pede permissão de microfone numa aba à parte; é só permitir: a gravação começa sozinha e você volta para a reunião.
+3. Quando terminar, **Parar e gerar a ata**. O ícone mostra **REC** enquanto grava, **…** enquanto processa e **✓** quando a ata está pronta. Ela aparece em **Pesquisar transcrições**, com a ata formatada, a transcrição de quem falou o quê (**Você** e **Participantes**) e botões para copiar, baixar em `.md` e refazer a ata com outro modelo.
+
+Como funciona: a extensão grava o áudio da aba e o seu microfone **em canais separados** do mesmo arquivo. O servidor transcreve cada canal sozinho e junta por horário, então sabe o que foi você e o que foram os outros sem adivinhar vozes. A ata é gerada pelo Gemini ou pelo Ollama, o mesmo dos resumos.
+
+- **Painel ao vivo, ao lado da reunião:** ao começar a gravar, um painel flutuante aparece no lado direito da própria aba (como o do Tactiq), com a transcrição ao vivo, uns 1 a 2 s depois de cada frase, quem falou e o horário. O áudio é cortado nas pausas da fala, então as frases saem inteiras. É uma prévia: a transcrição final, mais precisa, vem ao parar.
+  - No cabeçalho: **minimizar** (vira uma bolinha que traz o painel de volta), **abrir em janela separada** e **fechar** (a gravação continua).
+  - **Notas:** a caixa embaixo é sua. Anote nomes, prazos, o que importa. Elas entram na ata (a IA as usa para acertar a grafia de nomes e destacar o que você marcou) e ficam na página de transcrições.
+  - Se a página não aceitar o painel, ele abre como janela separada. **Mostrar a transcrição ao vivo** no popup liga e desliga, e **Abrir a transcrição ao vivo** reabre o painel se você o fechar. Se o servidor não responder, o painel avisa e a gravação continua. O painel abre sozinho ao começar a gravar; se a página não deixar, uma janela abre ao lado e o popup mostra o motivo.
+- **Use fones de ouvido.** Sem fone, o microfone também capta o alto-falante. O servidor descarta o que for repetição do que saiu da aba, mas fone é mais limpo.
+- A gravação é salva no disco do navegador a cada 10 s. Se o servidor estiver desligado ao parar, ou o navegador cair, o áudio não se perde: a reunião aparece com **Tentar de novo**.
+- Fechar a aba da reunião encerra a gravação e gera a ata com o que foi gravado.
+- Se algo não aparecer, abra o popup: **O que aconteceu na última gravação** lista cada etapa (captura da aba, microfone, painel, servidor), com um botão para copiar.
+- Uma reunião de 1 h tem uns 30 MB e leva alguns minutos para transcrever numa placa NVIDIA. Enquanto isso, mensagens de voz do WhatsApp esperam a vez.
+- Só Chrome e Brave. O Firefox não tem a captura de aba que isso usa; lá a seção Reunião nem aparece.
+- Modelos de ata: reunião padrão, daily, projeto, retrospectiva, cliente e aula, em `server/templates/`. Para criar o seu, copie um `.json` da pasta e mude; vale na hora, sem reiniciar. Os cinco primeiros são adaptados do [Meetily](https://github.com/Zackriya-Solutions/meetily) (MIT); veja `server/templates/CREDITS.md`.
+- Com o Ollama, desligamos o "pensamento" do modelo (`think: false`): em transcrição longa, modelos que pensam gastavam o contexto raciocinando e a ata saía vazia.
+
 ## Notas
 
 - O modelo Whisper baixa na primeira transcrição (`large-v3-turbo` ≈ 1,6 GB). Depois ele é carregado já no boot do servidor e fica na memória, então a primeira mensagem de voz não paga essa espera.

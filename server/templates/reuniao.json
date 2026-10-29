@@ -1,0 +1,27 @@
+{
+  "name": "Reunião padrão",
+  "description": "Resumo, decisões, ações e destaques da conversa.",
+  "sections": [
+    {
+      "title": "Resumo",
+      "instruction": "Um parágrafo curto com o resultado da reunião inteira",
+      "format": "paragraph"
+    },
+    {
+      "title": "Decisões",
+      "instruction": "As decisões mais importantes tomadas na reunião",
+      "format": "list"
+    },
+    {
+      "title": "Ações",
+      "instruction": "Todas as tarefas combinadas, com responsável e prazo. Sempre inclua o trecho da transcrição e o horário de referência",
+      "format": "list",
+      "item_format": "| **Responsável** | **Tarefa** | **Prazo** | **Trecho de referência** | **Horário** |\n| --- | --- | --- | --- | --- |"
+    },
+    {
+      "title": "Destaques da conversa",
+      "instruction": "Os principais assuntos discutidos, os argumentos centrais e as ideias importantes",
+      "format": "paragraph"
+    }
+  ]
+}

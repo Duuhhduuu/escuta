@@ -1,0 +1,265 @@
+// Grava a reunião: o áudio da aba (os outros participantes) e o microfone (você),
+// num arquivo estéreo com o microfone à esquerda e a aba à direita. O servidor
+// transcreve cada lado sozinho e sabe quem falou sem precisar adivinhar vozes.
+(() => {
+  const CHUNK_MS = 10_000;
+  const MIC_WAIT_MS = 5_000; // um documento offscreen não mostra o pedido de permissão: sem resposta, segue sem microfone
+  const BITRATE = 64_000;
+
+  let job = null;
+
+  // ---- transcrição ao vivo ----------------------------------------------------------
+  // Cada canal passa por um captador (pcm-tap.js) que entrega blocos de 100 ms. Aqui eles
+  // viram PCM de 16 kHz e são cortados nas pausas da fala, não de tempo em tempo: janela de
+  // tempo fixo parte frases ao meio e o Whisper erra as pontas. Cada janela vai para /live.
+  const LIVE = {
+    voiceRms: 0.01, // acima disso o bloco de 100 ms conta como fala
+    minWindowMs: 3000, // janela mais curta que isso espera mais fala, a não ser que haja pausa longa
+    pauseMs: 600, // pausa que fecha uma frase
+    maxWindowMs: 12_000, // ninguém espera mais que isso para ver texto
+    minVoiceMs: 500, // menos fala que isso na janela é tosse ou tecla: descarta
+    dropSilenceMs: 1500,
+    maxQueue: 20, // servidor mais lento que a fala: descarta as mais velhas, a gravação final pega tudo
+    timeoutMs: 60_000,
+  };
+
+  // 48 kHz -> 16 kHz por média de 3 amostras (basta para voz) e PCM de 16 bits.
+  function downsample(block) {
+    const out = new Int16Array(block.length / 3);
+    let energy = 0;
+    for (let i = 0; i < out.length; i++) {
+      const v = (block[3 * i] + block[3 * i + 1] + block[3 * i + 2]) / 3;
+      energy += v * v;
+      out[i] = Math.max(-1, Math.min(1, v)) * 32767;
+    }
+    return { pcm: out, rms: Math.sqrt(energy / out.length) };
+  }
+
+  function liveChannel(who, emit) {
+    let frames = [];
+    let ms = 0; // duração do que está pendente
+    let voiceMs = 0;
+    let silentMs = 0;
+    let startMs = 0; // onde a janela pendente começa, desde o início da gravação
+    let clock = 0; // total de áudio visto neste canal
+
+    const reset = () => {
+      frames = [];
+      ms = voiceMs = silentMs = 0;
+    };
+
+    function flush() {
+      const pcm = new Int16Array(frames.length * frames[0].length);
+      frames.forEach((frame, i) => pcm.set(frame, i * frame.length));
+      emit({ who, t0: startMs / 1000, pcm });
+      reset();
+    }
+
+    return (block) => {
+      const { pcm, rms } = downsample(block);
+      if (!frames.length) startMs = clock;
+      clock += 100;
+      frames.push(pcm);
+      ms += 100;
+      if (rms > LIVE.voiceRms) {
+        voiceMs += 100;
+        silentMs = 0;
+      } else {
+        silentMs += 100;
+      }
+
+      if (!voiceMs && ms > 1000) {
+        // Só silêncio: não acumula. Guarda os últimos 300 ms para não comer o começo da próxima fala.
+        frames = frames.slice(-3);
+        ms = 300;
+        startMs = clock - 300;
+      } else if (silentMs >= LIVE.dropSilenceMs && voiceMs < LIVE.minVoiceMs) {
+        reset();
+      } else if (voiceMs >= LIVE.minVoiceMs && ((silentMs >= LIVE.pauseMs && ms >= LIVE.minWindowMs) || ms >= LIVE.maxWindowMs)) {
+        flush();
+      }
+    };
+  }
+
+  async function startLive(ctx, nodes, cfg) {
+    await ctx.audioWorklet.addModule(chrome.runtime.getURL("pcm-tap.js"));
+    const abort = new AbortController();
+    const queue = [];
+    const lastText = { voce: "", outros: "" };
+    let busy = false;
+    let failing = false;
+    const tell = (payload) => chrome.runtime.sendMessage(payload).catch(() => {});
+
+    async function send(job) {
+      const query = new URLSearchParams({ language: cfg.language, model: cfg.model, prompt: lastText[job.who] });
+      const res = await fetch(`${cfg.base}/live?${query}`, {
+        method: "POST",
+        body: new Blob([job.pcm.buffer]),
+        headers: cfg.token ? { "X-Escuta-Token": cfg.token } : {},
+        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.timeoutMs)]),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Erro ${res.status}`);
+      const { segments } = await res.json();
+      const lines = segments.map((s) => ({ who: job.who, start: job.t0 + s.start, end: job.t0 + s.end, text: s.text }));
+      if (lines.length) {
+        lastText[job.who] = `${lastText[job.who]} ${lines.map((l) => l.text).join(" ")}`.trim().slice(-220);
+        tell({ type: "live-text", lines });
+      }
+    }
+
+    async function pump() {
+      if (busy) return;
+      busy = true;
+      try {
+        while (queue.length && !abort.signal.aborted) {
+          try {
+            await send(queue.shift());
+            if (failing) tell({ type: "live-status", error: null });
+            failing = false;
+          } catch (err) {
+            if (abort.signal.aborted) return;
+            // Sem servidor, a janela se perde, mas a gravação segue e a final recupera tudo.
+            if (!failing) tell({ type: "live-status", error: String(err.message || err) });
+            failing = true;
+          }
+        }
+      } finally {
+        busy = false;
+      }
+    }
+
+    function enqueue(job) {
+      queue.push(job);
+      if (queue.length > LIVE.maxQueue) {
+        queue.shift();
+        tell({ type: "live-status", lag: true });
+      }
+      pump();
+    }
+
+    const sink = ctx.createGain(); // o worklet só roda se estiver ligado ao destino; ganho 0 não toca nada
+    sink.gain.value = 0;
+    sink.connect(ctx.destination);
+    const taps = [];
+    for (const [who, node] of Object.entries(nodes)) {
+      if (!node) continue;
+      const tap = new AudioWorkletNode(ctx, "pcm-tap");
+      const push = liveChannel(who, enqueue);
+      tap.port.onmessage = (event) => push(event.data);
+      node.connect(tap);
+      tap.connect(sink);
+      taps.push(tap);
+    }
+
+    return () => {
+      abort.abort();
+      queue.length = 0;
+      for (const tap of taps) tap.disconnect();
+    };
+  }
+
+  const withTimeout = (promise, ms) =>
+    Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("timeout"), { name: "TimeoutError" })), ms))]);
+
+  async function start({ streamId, recId, live }) {
+    if (job) throw new Error("Já existe uma gravação em andamento.");
+
+    const tab = await navigator.mediaDevices.getUserMedia({
+      audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
+    });
+
+    let mic = null;
+    let micError = null;
+    try {
+      mic = await withTimeout(
+        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+        MIC_WAIT_MS,
+      );
+    } catch (err) {
+      micError = err.name || "erro";
+    }
+
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    // Sem gesto da pessoa neste documento invisível, o navegador pode deixar o áudio suspenso:
+    // o arquivo sairia mudo. Acorda explicitamente.
+    if (ctx.state !== "running") await ctx.resume().catch(() => {});
+    const merger = ctx.createChannelMerger(2);
+    // Cada fonte vira mono antes de entrar no seu canal.
+    const toChannel = (stream, channel) => {
+      const source = ctx.createMediaStreamSource(stream);
+      const mono = ctx.createGain();
+      mono.channelCount = 1;
+      mono.channelCountMode = "explicit";
+      source.connect(mono);
+      mono.connect(merger, 0, channel);
+      return { source, mono };
+    };
+    const micNodes = mic ? toChannel(mic, 0) : null;
+    const tabNodes = toChannel(tab, 1);
+    // Capturar a aba a deixa muda; tocar de volta mantém o som para quem está na reunião.
+    tabNodes.source.connect(ctx.destination);
+
+    // A prévia ao vivo é um extra: se o captador não carregar, a gravação segue sem ela.
+    let stopLive = null;
+    let liveError = null;
+    if (live) {
+      try {
+        stopLive = await startLive(ctx, { voce: micNodes?.mono, outros: tabNodes.mono }, live);
+      } catch (err) {
+        console.warn("[escuta] transcrição ao vivo indisponível:", err);
+        liveError = String(err?.message || err); // o painel mostra, em vez de falhar em silêncio
+      }
+    }
+
+    const dest = ctx.createMediaStreamDestination();
+    dest.channelCount = 2;
+    dest.channelCountMode = "explicit";
+    dest.channelInterpretation = "discrete";
+    merger.connect(dest);
+
+    const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: BITRATE });
+    const state = { recId, recorder, ctx, stopLive, streams: [tab, mic].filter(Boolean), n: 0, writes: Promise.resolve(), writeError: null, startedAt: Date.now(), mic: Boolean(mic) };
+    recorder.ondataavailable = (event) => {
+      if (!event.data.size) return;
+      const i = state.n++;
+      state.writes = state.writes
+        .then(() => RecDB.add(recId, i, event.data))
+        .catch((err) => {
+          state.writeError = err;
+        });
+    };
+    // A aba fechou ou a captura foi cortada: avisa o background para fechar a gravação.
+    tab.getAudioTracks()[0]?.addEventListener("ended", () => chrome.runtime.sendMessage({ type: "rec-ended" }).catch(() => {}));
+
+    recorder.start(CHUNK_MS);
+    job = state;
+    return { ok: true, mic: state.mic, micError, live: Boolean(stopLive), liveError };
+  }
+
+  async function stop() {
+    if (!job) return { ok: false, message: "Nenhuma gravação em andamento." };
+    const state = job;
+    job = null;
+    state.stopLive?.();
+    await new Promise((resolve) => {
+      if (state.recorder.state === "inactive") return resolve();
+      state.recorder.onstop = resolve;
+      state.recorder.stop();
+    });
+    await state.writes; // o último pedaço chega antes do evento stop, mas a gravação no disco demora um instante
+    for (const stream of state.streams) for (const track of stream.getTracks()) track.stop();
+    await state.ctx.close().catch(() => {});
+    if (state.writeError) return { ok: false, message: `Não consegui salvar a gravação: ${state.writeError.message || state.writeError}`, chunks: state.n };
+    return { ok: true, duration: (Date.now() - state.startedAt) / 1000, chunks: state.n, mic: state.mic };
+  }
+
+  const fail = (err) => ({ ok: false, message: String(err?.message || err), name: err?.name });
+
+  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (msg?.target !== "offscreen") return; // mensagem para outro contexto: não responde
+    if (msg.type === "start") start(msg).then(reply, (err) => reply(fail(err)));
+    else if (msg.type === "stop") stop().then(reply, (err) => reply(fail(err)));
+    else return;
+    return true;
+  });
+})();

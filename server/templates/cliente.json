@@ -1,0 +1,44 @@
+{
+  "name": "Reunião com cliente",
+  "description": "Objetivos do cliente, entregas combinadas e próximos passos.",
+  "sections": [
+    {
+      "title": "Dados da reunião",
+      "instruction": "Data, horário, formato e responsável pela conta, se forem ditos",
+      "format": "string"
+    },
+    {
+      "title": "Participantes",
+      "instruction": "Pessoas do cliente e da sua equipe, com o papel de cada uma",
+      "format": "list"
+    },
+    {
+      "title": "Objetivos do cliente",
+      "instruction": "O que o cliente quer alcançar e como vai medir o sucesso",
+      "format": "paragraph"
+    },
+    {
+      "title": "Entregas combinadas",
+      "instruction": "Entregas com responsável e prazo",
+      "format": "list",
+      "item_format": "| **Entrega** | **Responsável** | **Prazo** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Condições comerciais",
+      "instruction": "Preço, prazos de pagamento, SLAs ou itens de contrato que foram discutidos",
+      "format": "paragraph"
+    },
+    {
+      "title": "Riscos e preocupações",
+      "instruction": "Preocupações do cliente, bloqueios ou itens para escalar",
+      "format": "list",
+      "item_format": "| **Preocupação** | **Impacto** | **Responsável** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Próximos passos",
+      "instruction": "Ações com responsável e prazo",
+      "format": "list",
+      "item_format": "| **Responsável** | **Ação** | **Prazo** |\n| --- | --- | --- |"
+    }
+  ]
+}

@@ -135,4 +135,24 @@ button.secondary {
 
 .search-btn { width: 100%; margin: -4px 0 16px; }
 
+#meeting { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+#meeting label { margin-bottom: 8px; }
+.rec-btn { width: 100%; }
+#rec-logbox { margin-top: 12px; font-size: 12px; }
+#rec-logbox summary { cursor: pointer; color: var(--mute); }
+#rec-log { margin: 8px 0 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: 8px; background: color-mix(in srgb, var(--signal) 8%, transparent); font: 11px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; user-select: text; }
+.rec-btn--stop { background: var(--bad); color: #fff; }
+.note { margin: 8px 0 0; color: var(--mute); font-size: 11.5px; }
+.note--bad { color: var(--bad); }
+.live { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 13px; }
+.live #rec-title { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); animation: rec-blink 1.2s ease-in-out infinite; flex: none; }
+.wave--busy i { animation: rec-pulse 900ms ease-in-out infinite; }
+.wave--busy i:nth-child(2) { animation-delay: 120ms; }
+.wave--busy i:nth-child(3) { animation-delay: 240ms; }
+.wave--busy i:nth-child(4) { animation-delay: 360ms; }
+@keyframes rec-blink { 50% { opacity: 0.25; } }
+@keyframes rec-pulse { 0%, 100% { transform: scaleY(0.5); } 50% { transform: scaleY(1.2); } }
+@media (prefers-reduced-motion: reduce) { .rec-dot, .wave--busy i { animation: none; } }
+
 .hint--bad { background: color-mix(in srgb, var(--bad) 12%, transparent); font-family: inherit; }

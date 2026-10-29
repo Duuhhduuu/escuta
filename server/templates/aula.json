@@ -1,0 +1,31 @@
+{
+  "name": "Aula",
+  "description": "Conteúdo ensinado, conceitos, exemplos e o que estudar depois.",
+  "sections": [
+    {
+      "title": "Resumo da aula",
+      "instruction": "Um parágrafo com o assunto e o objetivo da aula",
+      "format": "paragraph"
+    },
+    {
+      "title": "Conceitos e definições",
+      "instruction": "Cada conceito ou definição apresentada, em linguagem clara e fiel ao que foi dito",
+      "format": "list"
+    },
+    {
+      "title": "Exemplos e exercícios",
+      "instruction": "Exemplos resolvidos ou exercícios citados, com o passo a passo quando for explicado. Inclua o horário de referência",
+      "format": "list"
+    },
+    {
+      "title": "Avisos e prazos",
+      "instruction": "Trabalhos, provas, datas e materiais mencionados pelo professor, se houver",
+      "format": "list"
+    },
+    {
+      "title": "Para estudar depois",
+      "instruction": "Pontos que foram dados como importantes, dúvidas que ficaram em aberto e leituras indicadas",
+      "format": "list"
+    }
+  ]
+}

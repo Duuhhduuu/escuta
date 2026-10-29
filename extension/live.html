@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Escuta · ao vivo</title>
+    <link rel="stylesheet" href="live.css" />
+  </head>
+  <body>
+    <header>
+      <div class="top">
+        <span class="dot" id="dot" aria-hidden="true"></span>
+        <h1 id="title">Ao vivo</h1>
+        <b id="clock" class="clock"></b>
+        <div class="tools" id="tools" hidden>
+          <button type="button" id="tool-min" class="icon" title="Minimizar" aria-label="Minimizar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+          </button>
+          <button type="button" id="tool-pop" class="icon" title="Abrir em uma janela separada" aria-label="Abrir em uma janela separada">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>
+          </button>
+          <button type="button" id="tool-close" class="icon" title="Fechar o painel (a gravação continua)" aria-label="Fechar o painel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        </div>
+      </div>
+      <div class="tab"><span>Transcrição ao vivo</span></div>
+      <p id="status" class="status" role="status"></p>
+    </header>
+
+    <div class="feedwrap">
+      <main id="feed" aria-live="polite" aria-label="Transcrição ao vivo"></main>
+      <button type="button" id="jump" class="jump" hidden>↓ Novas falas</button>
+    </div>
+
+    <section class="notes">
+      <label for="notes">Notas</label>
+      <textarea id="notes" rows="4" spellcheck="true" placeholder="Anote o que importa. Entra na ata."></textarea>
+    </section>
+
+    <footer>
+      <button type="button" id="copy" class="round" title="Copiar a transcrição" aria-label="Copiar a transcrição">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
+      </button>
+      <button type="button" id="stop" class="stop" hidden>Parar e gerar a ata</button>
+      <button type="button" id="open" class="primary" hidden>Abrir a ata</button>
+    </footer>
+
+    <script src="live.js"></script>
+  </body>
+</html>

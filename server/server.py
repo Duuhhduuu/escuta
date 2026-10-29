@@ -4,6 +4,11 @@
 POST /transcribe   raw audio body  -> {"text", "language", "duration"}   (Whisper)
      ?stream=1                     -> NDJSON, one {"segment"} per chunk, then {"done", ...}
 POST /summarize    {"text", ...}   -> {"summary"}            (Ollama or Gemini)
+POST /live         PCM 16 kHz mono -> {"segments"}   (janela curta, para a transcrição ao vivo)
+POST /meeting      stereo audio    -> NDJSON, {"stage"} e no fim {"done", "segments"}
+                                      (esquerda = você, direita = os outros)
+POST /minutes      {"segments" ou "transcript", "template"} -> {"minutes"}   (ata em Markdown)
+GET  /templates                    -> modelos de ata
 GET  /health                       -> engine status
 
 Transcription runs on mlx-whisper (Apple Silicon) or faster-whisper (Windows,
@@ -15,6 +20,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 import tempfile
 import time
@@ -25,6 +31,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)  # `import meeting` tem que achar o vizinho mesmo com o servidor iniciado de outra pasta
+import meeting  # noqa: E402
 
 # pythonw.exe (Windows) não tem console; o launchd (Mac) pede ESCUTA_LOG=1. Nos dois o log vai para disco.
 if sys.stdout is None or os.environ.get("ESCUTA_LOG") == "1":
@@ -65,6 +73,9 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 # so other local processes cannot use the server. Same value in the popup.
 TOKEN = os.environ.get("ESCUTA_TOKEN", "").strip()
 MAX_BODY = 50 * 1024 * 1024
+MAX_LIVE = 8 * 1024 * 1024  # uma janela de 15 s a 16 kHz em 16 bits tem 480 KB; isto é folga
+MAX_MEETING = 400 * 1024 * 1024  # ~64 kbps estéreo dá uns 30 MB por hora; isso cobre reunião de várias horas
+SILENT_RMS = 1e-4  # canal sem nada (microfone negado): nem passa pelo Whisper, que inventaria texto
 BATCH_SIZE = int(os.environ.get("ESCUTA_BATCH", "16"))  # VRAM vs speed; 16 fits comfortably in 8 GB
 # Até aqui (segundos) o áudio vai no modo sequencial: num recado real de 1:18 foi o
 # único que pegou uma pergunta de 1 s no começo, e custa só uns 2 s a mais. O lote
@@ -157,7 +168,7 @@ def canonical_model(name):
 MLX_LINE = re.compile(r"^\[[\d:.]+ --> [\d:.]+\] (.*)$", re.S)
 
 
-def transcribe_mlx(path, model, language, on_segment=None):
+def transcribe_mlx(path, model, language, on_segment=None, collect=None):
     import mlx_whisper
 
     # mlx-whisper só devolve o texto no fim. Com verbose=True ele imprime cada
@@ -186,6 +197,8 @@ def transcribe_mlx(path, model, language, on_segment=None):
     finally:
         module.__dict__.pop("print", None)
     segments = result.get("segments") or []
+    if collect is not None:
+        collect.extend({"start": round(s["start"], 2), "end": round(s["end"], 2), "text": s["text"]} for s in segments)
     duration = segments[-1]["end"] if segments else 0.0
     return result["text"].strip(), result.get("language"), duration
 
@@ -266,12 +279,13 @@ def gave_up(segments):
     )
 
 
-def run_faster(loaded, path, language, on_segment=None):
+def run_faster(loaded, path, language, on_segment=None, collect=None):
     from faster_whisper import decode_audio
 
     engine, batched = loaded
     # Decodifica uma vez só: a duração escolhe o modo, e os dois aceitam o array pronto.
-    audio = decode_audio(path)
+    # Reunião já chega decodificada (um canal por vez); mensagem de voz chega como arquivo.
+    audio = decode_audio(path) if isinstance(path, str) else path
     if batched and len(audio) / 16000 > SEQUENTIAL_S:
         segments, info = engine.transcribe(
             audio,
@@ -296,18 +310,20 @@ def run_faster(loaded, path, language, on_segment=None):
     parts = []
     for seg in segments:
         parts.append(seg.text)
+        if collect is not None:
+            collect.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text})
         if on_segment and seg.text.strip():
             on_segment(seg.text)
     return "".join(parts).strip(), info.language, info.duration
 
 
-def transcribe_faster(path, model, language, on_segment=None):
+def transcribe_faster(path, model, language, on_segment=None, collect=None):
     global _cuda_broken
     for suffix in ("-q4", "-4bit", "-8bit", "-fp16"):  # quantizações que só existem no mlx
         model = model.removesuffix(suffix)
     forced, device, compute = faster_device()
     try:
-        return run_faster(load_faster(model, device, compute), path, language, on_segment)
+        return run_faster(load_faster(model, device, compute), path, language, on_segment, collect)
     except ConnectionError:
         raise  # o cliente fechou o streaming; não é defeito da CUDA
     except Exception as exc:
@@ -318,7 +334,9 @@ def transcribe_faster(path, model, language, on_segment=None):
         print(f"[escuta] CUDA falhou ({exc}); refazendo na CPU.", flush=True)
         _cuda_broken = True
         _faster_models.clear()
-        return run_faster(load_faster(model, "cpu", "int8"), path, language, on_segment)
+        if collect is not None:
+            collect.clear()
+        return run_faster(load_faster(model, "cpu", "int8"), path, language, on_segment, collect)
 
 
 def preload():
@@ -378,6 +396,162 @@ def transcribe(audio, model, language, on_segment=None):
     return {"text": text, "language": lang, "duration": round(duration or 0, 1)}
 
 
+def split_channels(path):
+    """(esquerda, direita) a 16 kHz, float32. Um arquivo mono vira dois canais iguais."""
+    try:
+        from faster_whisper import decode_audio
+
+        return decode_audio(path, split_stereo=True)
+    except ImportError:  # Mac com mlx: sem PyAV, usa o ffmpeg que o mlx-whisper já exige
+        import numpy as np
+
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", path, "-f", "f32le", "-ac", "2", "-ar", "16000", "-"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        both = np.frombuffer(raw, np.float32)
+        return both[0::2], both[1::2]
+
+
+def transcribe_live(pcm, model, language, prompt):
+    """Uma janela curta (PCM de 16 bits, 16 kHz, mono) vira trechos com horário relativo à janela.
+    É o que alimenta a transcrição ao vivo: rápido e sem a conferência que a gravação inteira recebe."""
+    engine = whisper_engine()
+    if engine is None:
+        raise ApiError(503, "whisper_missing", f"Whisper não está instalado. {SETUP_HINT}")
+    import numpy as np
+
+    samples = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
+    if not len(samples):
+        return []
+    model = canonical_model(model)
+    language = None if language == "auto" else language
+    prompt = (prompt or "").strip()[-220:] or None  # o fim da fala anterior: ajuda nomes e a pontuação a continuar
+
+    def job():
+        global _cuda_broken
+        if engine == "mlx":
+            import mlx_whisper
+
+            out = mlx_whisper.transcribe(
+                samples,
+                path_or_hf_repo=MLX_REPOS.get(model, model),
+                language=language,
+                condition_on_previous_text=False,
+                initial_prompt=prompt,
+            )
+            return [
+                {"start": s["start"], "end": s["end"], "text": s["text"], "no_speech": s.get("no_speech_prob", 0), "logprob": s.get("avg_logprob", 0)}
+                for s in out.get("segments") or []
+            ]
+
+        name = model
+        for suffix in ("-q4", "-4bit", "-8bit", "-fp16"):
+            name = name.removesuffix(suffix)
+
+        def run(device, compute):
+            loaded = load_faster(name, device, compute)
+            whisper = loaded[0].model if loaded[1] else loaded[0]  # janela curta: o modo sequencial, sem lote
+            segments, _ = whisper.transcribe(
+                samples, language=language, vad_filter=True, condition_on_previous_text=False, initial_prompt=prompt
+            )
+            return [
+                {"start": s.start, "end": s.end, "text": s.text, "no_speech": s.no_speech_prob, "logprob": s.avg_logprob}
+                for s in segments
+            ]
+
+        forced, device, compute = faster_device()
+        try:
+            return run(device, compute)
+        except Exception as exc:
+            if device != "cuda" or forced:
+                raise
+            print(f"[escuta] CUDA falhou ({exc}); refazendo na CPU.", flush=True)
+            _cuda_broken = True
+            _faster_models.clear()
+            return run("cpu", "int8")
+
+    return meeting.clean_live(whisper_worker.submit(job).result())
+
+
+def transcribe_meeting(audio, model, language, emit):
+    """Transcreve cada canal sozinho e junta por horário. emit({"stage", ...}) avisa o andamento."""
+    engine = whisper_engine()
+    if engine is None:
+        raise ApiError(503, "whisper_missing", f"Whisper não está instalado. {SETUP_HINT}")
+    import numpy as np
+
+    model = canonical_model(model)
+    language = None if language == "auto" else language
+    start = time.monotonic()
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".webm", delete=False)
+    try:
+        tmp.write(audio)
+        tmp.close()
+        emit({"stage": "decode"})
+        try:
+            channels = dict(zip((meeting.WHO_MIC, meeting.WHO_TAB), split_channels(tmp.name)))
+        except FileNotFoundError as exc:
+            raise ApiError(500, "ffmpeg_missing", "ffmpeg não encontrado. Instale o ffmpeg e tente de novo.") from exc
+        except Exception as exc:
+            raise ApiError(400, "bad_audio", f"Não consegui ler a gravação: {exc}") from exc
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+    run = transcribe_mlx if engine == "mlx" else transcribe_faster
+    found = {}
+    for n, (who, samples) in enumerate(channels.items()):
+        rms = float(np.sqrt(np.mean(np.square(samples)))) if len(samples) else 0.0
+        if rms < SILENT_RMS:
+            found[who] = []
+            emit({"stage": who, "skipped": True, "progress": (n + 1) / 2})
+            continue
+        emit({"stage": who, "progress": n / 2})
+        parts = []
+        whisper_worker.submit(run, samples, model, language, None, parts).result()
+        found[who] = parts
+    emit({"stage": "merge", "progress": 1})
+
+    segments = meeting.merge_channels(found[meeting.WHO_MIC], found[meeting.WHO_TAB])
+    for seg in segments:
+        seg["text"] = seg["text"].strip()
+    duration = max(len(samples) for samples in channels.values()) / 16000
+    print(f"[escuta] reunião transcrita em {time.monotonic() - start:.1f}s ({duration:.0f}s de áudio, {len(segments)} trechos).", flush=True)
+    return {"duration": round(duration, 1), "mic": bool(found[meeting.WHO_MIC]), "segments": segments}
+
+
+def complete(system, user, model, timeout):
+    """Uma chamada ao modelo de resumo que estiver configurado (Gemini ou Ollama)."""
+    if GEMINI_KEY:
+        out = summarize_gemini(user, system, timeout)
+        if not out:
+            raise ApiError(502, "empty_response", "O modelo não devolveu texto. Tente de novo.")
+        return out
+    return summarize(user, model or DEFAULT_OLLAMA, system, timeout)
+
+
+def make_minutes(transcript, template_id, language, model, notes=""):
+    template = meeting.load_templates().get(template_id)  # relê a pasta: modelo novo vale sem reiniciar
+    if template is None:
+        raise ApiError(404, "template_missing", f"Modelo '{template_id}' não existe.")
+    # Ollama tem janela pequena; o Gemini aguenta uma reunião inteira de uma vez.
+    limit = 300_000 if GEMINI_KEY else 20_000
+    chunks = meeting.chunk_lines(transcript, limit)
+    if len(chunks) > 1:
+        print(f"[escuta] transcrição longa: anotando {len(chunks)} partes antes da ata.", flush=True)
+        notes = [complete(meeting.NOTES_PROMPT, chunk, model, 300) for chunk in chunks]
+        transcript = "\n\n".join(f"Anotações da parte {i}:\n{note}" for i, note in enumerate(notes, 1))
+    user = f"Transcrição da reunião:\n\n{transcript}"
+    if notes:
+        user += f"\n\nAnotações de quem gravou, feitas durante a reunião:\n{notes}"
+    return complete(meeting.minutes_prompt(template, language, bool(notes)), user, model, 600)
+
+
 def ollama_models():
     try:
         with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=1.5) as res:
@@ -386,36 +560,55 @@ def ollama_models():
         return None
 
 
-def summarize(text, model):
-    body = json.dumps(
-        {
+def summarize(text, model, system=SUMMARY_PROMPT, timeout=180):
+    # O Ollama corta a entrada no contexto padrão (4096 tokens) sem avisar, e uma ata de
+    # reunião longa passa disso fácil. ~2 caracteres por token (número gasta mais que
+    # palavra), mais folga para a resposta.
+    num_ctx = min(32768, max(4096, int((len(system) + len(text)) / 2) + 4096))
+
+    def ask(think):
+        payload = {
             "model": model,
             "stream": False,
-            "options": {"temperature": 0.2},
+            "options": {"temperature": 0.2, "num_ctx": num_ctx},
             "messages": [
-                {"role": "system", "content": SUMMARY_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": text},
             ],
         }
-    ).encode()
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/chat", data=body, headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=180) as res:
+        if think is not None:
+            payload["think"] = think
+        req = urllib.request.Request(
+            f"{OLLAMA_URL}/api/chat", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as res:
             return json.load(res)["message"]["content"].strip()
+
+    try:
+        # Modelos que "pensam" (gemma4, qwen3, deepseek-r1…) gastam o contexto raciocinando e,
+        # num texto longo, chegam ao limite sem escrever nada: a ata saía vazia. Resumir não
+        # precisa disso, e desligar deixa o trecho de 5 mil caracteres 2x mais rápido.
+        try:
+            out = ask(False)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 400:
+                raise
+            out = ask(None)  # modelo antigo que não conhece o campo "think"
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise ApiError(404, "ollama_model_missing", f"Modelo {model} não baixado. Rode: ollama pull {model}") from exc
         raise ApiError(502, "ollama_error", f"Ollama respondeu {exc.code}.") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise ApiError(503, "ollama_offline", "Ollama não está rodando. Abra o app Ollama.") from exc
+    if not out:
+        raise ApiError(502, "empty_response", "O modelo não devolveu texto. Tente de novo ou escolha outro modelo.")
+    return out
 
 
-def summarize_gemini(text):
+def summarize_gemini(text, system=SUMMARY_PROMPT, timeout=60):
     body = json.dumps(
         {
-            "systemInstruction": {"parts": [{"text": SUMMARY_PROMPT}]},
+            "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": text}]}],
             "generationConfig": {"temperature": 0.2},
         }
@@ -426,7 +619,7 @@ def summarize_gemini(text):
         headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY},
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as res:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
             parts = json.load(res)["candidates"][0]["content"]["parts"]
             return "".join(p.get("text", "") for p in parts).strip()
     except urllib.error.HTTPError as exc:
@@ -469,15 +662,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _read_body(self):
+    def _read_body(self, limit=MAX_BODY):
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
         if length <= 0:
             raise ApiError(400, "empty_body", "Corpo vazio.")
-        if length > MAX_BODY:
-            raise ApiError(413, "too_large", "Áudio maior que 50 MB.")
+        if length > limit:
+            raise ApiError(413, "too_large", f"Corpo maior que {limit // (1024 * 1024)} MB.")
         return self.rfile.read(length)
 
     def _allowed(self):
@@ -490,12 +683,16 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _stream_transcribe(self, model, language):
-        """NDJSON: uma linha {"segment"} por trecho pronto e, no fim, {"done", "text", ...}
+        """NDJSON: uma linha {"segment"} por trecho pronto e, no fim, {"done", "text", ...}."""
+        self._stream_ndjson(lambda audio, emit: transcribe(audio, model, language, lambda text: emit({"segment": text})))
+
+    def _stream_ndjson(self, job, limit=MAX_BODY):
+        """job(corpo, emit) devolve o dict final. Linhas {"stage"|"segment"}, depois {"done", ...}
         ou {"error", "message"}. Erros depois do 200 já enviado só podem ir no corpo."""
         if not self._allowed():
             return
         try:
-            audio = self._read_body()
+            audio = self._read_body(limit)
         except ApiError as err:
             return self._send(err.status, {"code": err.code, "message": err.message})
         self.send_response(200)
@@ -512,7 +709,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         try:
-            emit({"done": True, **transcribe(audio, model, language, lambda text: emit({"segment": text}))})
+            emit({"done": True, **job(audio, emit)})
         except ApiError as err:
             emit({"error": err.code, "message": err.message})
         except ConnectionError:
@@ -552,7 +749,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if urlparse(self.path).path != "/health":
+        path = urlparse(self.path).path
+        if path == "/templates":
+            return self._guard(lambda: {"templates": meeting.public_list(meeting.load_templates())})
+        if path != "/health":
             return self._send(404, {"code": "not_found", "message": "Rota não existe."})
 
         def health():
@@ -595,6 +795,41 @@ class Handler(BaseHTTPRequestHandler):
                 return {"summary": summarize(text, payload.get("model") or DEFAULT_OLLAMA)}
 
             self._guard(run)
+        elif url.path == "/live":
+            query = parse_qs(url.query)
+            model = query.get("model", [DEFAULT_WHISPER])[0]
+            language = query.get("language", ["pt"])[0]
+            prompt = query.get("prompt", [""])[0]
+            self._guard(lambda: {"segments": transcribe_live(self._read_body(MAX_LIVE), model, language, prompt)})
+        elif url.path == "/meeting":
+            query = parse_qs(url.query)
+            model = query.get("model", [DEFAULT_WHISPER])[0]
+            language = query.get("language", ["pt"])[0]
+            self._stream_ndjson(lambda audio, emit: transcribe_meeting(audio, model, language, emit), MAX_MEETING)
+        elif url.path == "/minutes":
+
+            def run_minutes():
+                try:
+                    payload = json.loads(self._read_body())
+                except ValueError as exc:
+                    raise ApiError(400, "bad_json", "JSON inválido.") from exc
+                transcript = (payload.get("transcript") or "").strip()
+                if not transcript and payload.get("segments"):
+                    transcript = meeting.format_transcript(payload["segments"])
+                if not transcript:
+                    raise ApiError(400, "empty_text", "Nada para resumir.")
+                notes = str(payload.get("notes") or "").strip()[:20_000]
+                return {
+                    "minutes": make_minutes(
+                        transcript,
+                        payload.get("template") or "reuniao",
+                        payload.get("language") or "pt",
+                        payload.get("model"),
+                        notes,
+                    )
+                }
+
+            self._guard(run_minutes)
         else:
             self._send(404, {"code": "not_found", "message": "Rota não existe."})
 
