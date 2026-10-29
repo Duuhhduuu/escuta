@@ -384,9 +384,3 @@ escuta/
 ### Identidade visual
 
 Logo, símbolo, banner e ícones ficam em `brand/`. Cores: âmbar `#FFC53D`, tinta `#0E1424` e sinal `#3347FF`. Fontes: Bricolage Grotesque, Instrument Sans e JetBrains Mono, empacotadas em `extension/fonts`.
-
-## Créditos
-
-As imagens de `docs/img` são capturas das próprias telas da extensão, com dados de exemplo.
-
-Transcrição com [faster-whisper](https://github.com/SYSTRAN/faster-whisper) e, no Mac com chip Apple, [mlx-whisper](https://github.com/ml-explore/mlx-examples). Modelos de ata adaptados do [Meetily](https://github.com/Zackriya-Solutions/meetily).
