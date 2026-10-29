@@ -49,16 +49,54 @@ const toOffscreen = (message) =>
 // ---- painel dentro da aba da reunião ----------------------------------------------------
 
 // dock.js desenha o painel flutuante na página. Só funciona numa aba que a pessoa acabou de
-// invocar (activeTab); se falhar, o chamador cai para a janela solta.
+// invocar (activeTab). Devolve { ok } ou { ok: false, error } com o motivo.
 async function openDock(tabId) {
-  if (!chrome.scripting || tabId == null) return false;
+  if (!chrome.scripting || tabId == null) return { ok: false, error: "sem aba para o painel" };
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ["dock.js"] });
+    return { ok: true };
+  } catch (err) {
+    const error = String(err?.message || err);
+    console.warn("[escuta] não consegui abrir o painel na aba:", error);
+    return { ok: false, error };
+  }
+}
+
+// Alternativa quando a página não aceita o painel: uma janela ao lado, colada na borda direita da
+// janela do navegador. Aberta aqui (e não no popup, que já fechou a esta altura).
+async function openLiveWindow(tabId) {
+  try {
+    const url = chrome.runtime.getURL("live.html");
+    const [existing] = await chrome.tabs.query({ url }).catch(() => []);
+    if (existing) {
+      await chrome.windows.update(existing.windowId, { focused: true });
+      return true;
+    }
+    const size = { width: 400, height: 720 };
+    const place = {};
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      const win = await chrome.windows.get(tab.windowId);
+      place.left = Math.max(0, (win.left ?? 0) + (win.width ?? 1280) - size.width - 12);
+      place.top = (win.top ?? 0) + 40;
+      size.height = Math.min(780, Math.max(480, (win.height ?? 800) - 80));
+    } catch {
+      // sem a posição da janela, o navegador escolhe
+    }
+    await chrome.windows.create({ url, type: "popup", ...size, ...place });
     return true;
   } catch (err) {
-    console.warn("[escuta] não consegui abrir o painel na aba:", err.message || err);
+    console.warn("[escuta] não consegui abrir a janela ao vivo:", err.message || err);
     return false;
   }
+}
+
+// Painel na aba; se não der, janela solta. Sempre aparece alguma coisa.
+async function showLive(tabId) {
+  const docked = await openDock(tabId);
+  if (docked.ok) return { dock: true, window: false, dockError: null };
+  const opened = await openLiveWindow(tabId);
+  return { dock: false, window: opened, dockError: docked.error };
 }
 
 // ---- gravar ---------------------------------------------------------------------
@@ -95,12 +133,23 @@ async function startMeeting({ streamId, tabId, title, template }) {
     startedAt: Date.now(),
     mic: res.mic,
     micError: res.micError || null,
-    live: Boolean(res.live),
+    live: settings.live !== false, // pedido pela pessoa; se o captador subiu, quem diz é liveReady
     language: settings.language,
   });
   setBadge("REC", "#b42318");
-  const dock = res.live ? await openDock(tabId) : false;
-  return { ok: true, data: { id, mic: res.mic, micError: res.micError || null, live: Boolean(res.live), dock } };
+
+  // O painel abre sempre que a pessoa pediu o ao vivo, mesmo que o captador de áudio não tenha
+  // subido: ele mostra o motivo e as notas continuam servindo.
+  let panel = { dock: false, window: false, dockError: null };
+  if (settings.live !== false) {
+    if (res.liveError) await updateLive((cur) => ({ ...cur, id, error: `Texto ao vivo indisponível: ${res.liveError}` }));
+    panel = await showLive(tabId);
+    await setRec({ ...(await getRec()), ...panel });
+  }
+  return {
+    ok: true,
+    data: { id, mic: res.mic, micError: res.micError || null, live: settings.live !== false, liveReady: Boolean(res.live), ...panel },
+  };
 }
 
 let stopping = false;
@@ -355,7 +404,7 @@ function meetingHandle(msg) {
     case "rec-ended": // o gravador avisa que a captura da aba terminou
       return stopMeeting();
     case "dock-open":
-      return openDock(msg.tabId).then((dock) => ({ ok: true, data: { dock } }));
+      return showLive(msg.tabId).then((panel) => ({ ok: true, data: panel }));
     case "live-text":
       return liveText(msg.lines).then(() => ({ ok: true }));
     case "live-status":

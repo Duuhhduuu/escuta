@@ -104,9 +104,9 @@ function paintState() {
 
   if (rec) {
     dot.className = "dot rec";
-    note = "Gravando. A janela acompanha a fala.";
+    note = "Gravando. A transcrição aparece aqui conforme a fala.";
     if (live.error) {
-      note = `Sem resposta do servidor para o texto ao vivo (${live.error}). A gravação continua e a transcrição final é feita ao parar.`;
+      note = `${live.error} A gravação continua e a transcrição final é feita ao parar.`;
       warn = true;
     } else if (live.lag) {
       note = "O computador está ocupado: o texto ao vivo está atrasado. Nada se perde, a versão final pega tudo.";

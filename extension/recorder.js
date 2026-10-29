@@ -198,11 +198,13 @@
 
     // A prévia ao vivo é um extra: se o captador não carregar, a gravação segue sem ela.
     let stopLive = null;
+    let liveError = null;
     if (live) {
       try {
         stopLive = await startLive(ctx, { voce: micNodes?.mono, outros: tabNodes.mono }, live);
       } catch (err) {
         console.warn("[escuta] transcrição ao vivo indisponível:", err);
+        liveError = String(err?.message || err); // o painel mostra, em vez de falhar em silêncio
       }
     }
 
@@ -228,7 +230,7 @@
 
     recorder.start(CHUNK_MS);
     job = state;
-    return { ok: true, mic: state.mic, micError, live: Boolean(stopLive) };
+    return { ok: true, mic: state.mic, micError, live: Boolean(stopLive), liveError };
   }
 
   async function stop() {

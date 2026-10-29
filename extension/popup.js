@@ -176,9 +176,18 @@ async function refreshRec() {
   if (rec?.state === "recording") {
     recStart = rec.startedAt;
     $("rec-title").textContent = rec.title;
-    $("rec-mic").textContent = rec.mic
-      ? "Gravando o áudio da aba e o seu microfone."
-      : "Sem microfone: só o áudio da aba está sendo gravado. Se quiser a sua voz, pare, permita o microfone e grave de novo.";
+    const where =
+      rec.live === false || rec.dock === undefined
+        ? ""
+        : rec.dock
+          ? " Painel ao vivo no lado direito da página."
+          : rec.window
+            ? ` O painel não abriu nesta página (${rec.dockError || "motivo desconhecido"}); abri uma janela ao lado.`
+            : ` Não consegui abrir o painel (${rec.dockError || "motivo desconhecido"}). Use "Abrir a transcrição ao vivo".`;
+    $("rec-mic").textContent =
+      (rec.mic
+        ? "Gravando o áudio da aba e o seu microfone."
+        : "Sem microfone: só o áudio da aba está sendo gravado. Se quiser a sua voz, pare, permita o microfone e grave de novo.") + where;
     $("rec-live-open").hidden = !rec.live;
     showRec("rec-live");
   } else {
@@ -233,32 +242,13 @@ $("rec-start").addEventListener("click", async () => {
   $("rec-start").disabled = false;
   if (!res?.ok) return showRecError(res?.message || "Não consegui começar a gravar.");
   // O painel entra na própria aba da reunião; se a página não deixar, cai para uma janela solta.
-  if (res.data.live && !res.data.dock) await openLive();
   refreshRec();
 });
-
-// A janela fica ao lado da reunião, no canto direito da tela. Se já existe, só vem para a frente.
-async function openLive() {
-  const url = chrome.runtime.getURL("live.html");
-  const [existing] = await chrome.tabs.query({ url }).catch(() => []);
-  if (existing) return chrome.windows.update(existing.windowId, { focused: true });
-  const width = 400;
-  const height = Math.min(760, screen.availHeight - 80);
-  return chrome.windows.create({
-    url,
-    type: "popup",
-    width,
-    height,
-    left: (screen.availLeft || 0) + screen.availWidth - width - 20,
-    top: (screen.availTop || 0) + 40,
-  });
-}
 
 $("rec-live-open").addEventListener("click", async () => {
   const state = await chrome.runtime.sendMessage({ type: "rec-state" }).catch(() => null);
   const tabId = state?.data?.rec?.tabId;
-  const res = tabId == null ? null : await chrome.runtime.sendMessage({ type: "dock-open", tabId }).catch(() => null);
-  if (!res?.data?.dock) await openLive(); // a aba não está à mão (ou fechou): janela solta
+  await chrome.runtime.sendMessage({ type: "dock-open", tabId }).catch(() => null); // painel na aba, ou janela se não der
   window.close();
 });
 
