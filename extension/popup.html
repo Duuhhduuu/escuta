@@ -14,6 +14,34 @@
 
     <button type="button" id="search" class="search-btn">Pesquisar transcrições</button>
 
+    <section id="meeting" aria-labelledby="meeting-title" hidden>
+      <h2 id="meeting-title">Reunião</h2>
+
+      <div id="rec-idle">
+        <label>
+          <span>Modelo da ata</span>
+          <select id="template"></select>
+        </label>
+        <button type="button" id="rec-start" class="rec-btn">Gravar esta aba</button>
+        <p class="note">
+          Grava o áudio da aba (Meet, Teams, Zoom…) e o seu microfone. Use fones de ouvido: assim a sua voz não
+          volta pelo alto-falante.
+        </p>
+        <p class="note note--bad" id="rec-error" hidden></p>
+      </div>
+
+      <div id="rec-live" hidden>
+        <p class="live"><span class="rec-dot" aria-hidden="true"></span><b id="rec-clock">0:00</b><span id="rec-title"></span></p>
+        <p class="note" id="rec-mic"></p>
+        <button type="button" id="rec-stop" class="rec-btn rec-btn--stop">Parar e gerar a ata</button>
+      </div>
+
+      <div id="rec-busy" hidden>
+        <p class="live"><span class="wave wave--busy" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="busy-text">Gerando a ata…</span></p>
+        <button type="button" id="rec-open" class="secondary">Abrir transcrições</button>
+      </div>
+    </section>
+
     <section aria-labelledby="status-title">
       <h2 id="status-title">Motores locais</h2>
       <ul class="status">

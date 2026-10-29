@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Escuta · microfone</title>
+    <link rel="stylesheet" href="history.css" />
+    <style>
+      body { display: grid; place-items: center; min-height: 100vh; text-align: center; padding: 24px; }
+      .box { max-width: 420px; }
+      h1 { margin: 0 0 12px; }
+      p { color: var(--mute); }
+      #status { color: var(--ink); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h1>Microfone</h1>
+      <p>
+        Para gravar a sua voz junto com a dos outros participantes, o navegador precisa da sua
+        permissão. Clique em <b>Permitir</b> no aviso que aparece no topo desta página.
+      </p>
+      <p id="status" role="status">Aguardando a permissão…</p>
+    </div>
+    <script src="mic.js"></script>
+  </body>
+</html>

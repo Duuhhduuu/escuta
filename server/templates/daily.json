@@ -1,0 +1,39 @@
+{
+  "name": "Daily",
+  "description": "Atualização rápida de equipe: ontem, hoje e bloqueios.",
+  "sections": [
+    {
+      "title": "Data",
+      "instruction": "Data da reunião no formato AAAA-MM-DD, se for citada",
+      "format": "string"
+    },
+    {
+      "title": "Participantes",
+      "instruction": "Quem participou",
+      "format": "list"
+    },
+    {
+      "title": "Ontem",
+      "instruction": "O que cada pessoa concluiu (tópicos curtos)",
+      "format": "list",
+      "item_format": "| **Pessoa** | **Concluído** |\n| --- | --- |"
+    },
+    {
+      "title": "Hoje",
+      "instruction": "O que cada pessoa planeja fazer (tópicos curtos)",
+      "format": "list",
+      "item_format": "| **Pessoa** | **Planejado** |\n| --- | --- |"
+    },
+    {
+      "title": "Bloqueios",
+      "instruction": "Impedimentos e quem é o responsável, se for dito",
+      "format": "list",
+      "item_format": "| **Pessoa** | **Bloqueio** | **Impacto** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Avisos",
+      "instruction": "Avisos ou comunicados rápidos, se houver",
+      "format": "paragraph"
+    }
+  ]
+}

@@ -131,6 +131,128 @@ $("search").addEventListener("click", () => {
   window.close();
 });
 
+// ---- reunião -------------------------------------------------------------------
+
+const STAGES = {
+  upload: "Enviando a gravação…",
+  decode: "Preparando o áudio…",
+  voce: "Transcrevendo a sua voz…",
+  outros: "Transcrevendo os participantes…",
+  merge: "Juntando as falas…",
+  minutes: "Escrevendo a ata…",
+};
+
+const fmtClock = (ms) => {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = String(Math.floor((total % 3600) / 60)).padStart(h ? 2 : 1, "0");
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${m}:${s}` : `${m}:${s}`;
+};
+
+let recStart = 0;
+let latestId = "";
+
+// Gravando ou livre. A faixa "gerando a ata" é à parte: dá para gravar a próxima reunião
+// enquanto a anterior ainda está sendo transcrita.
+function showRec(which) {
+  for (const id of ["rec-idle", "rec-live"]) $(id).hidden = id !== which;
+}
+
+async function latestMeeting() {
+  const all = await chrome.storage.local.get(null);
+  return Object.entries(all)
+    .filter(([key, value]) => key.startsWith("m:") && value?.status)
+    .map(([, value]) => value)
+    .sort((a, b) => (b.at || 0) - (a.at || 0))[0];
+}
+
+async function refreshRec() {
+  const res = await chrome.runtime.sendMessage({ type: "rec-state" }).catch(() => null);
+  if (!res?.ok || !res.data.canRecord) return; // Firefox e navegadores sem gravação de aba: a seção fica escondida
+  $("meeting").hidden = false;
+
+  const rec = res.data.rec;
+  if (rec?.state === "recording") {
+    recStart = rec.startedAt;
+    $("rec-title").textContent = rec.title;
+    $("rec-mic").textContent = rec.mic
+      ? "Gravando o áudio da aba e o seu microfone."
+      : "Sem microfone: só o áudio da aba está sendo gravado. Se quiser a sua voz, pare, permita o microfone e grave de novo.";
+    showRec("rec-live");
+  } else {
+    showRec("rec-idle");
+  }
+
+  const last = await latestMeeting();
+  latestId = last?.id || "";
+  const processing = last?.status === "processing";
+  $("rec-busy").hidden = !processing;
+  if (processing) $("busy-text").textContent = STAGES[last.stage] || "Gerando a ata…";
+}
+
+async function loadTemplates() {
+  const res = await chrome.runtime.sendMessage({ type: "templates" }).catch(() => null);
+  const list = res?.ok ? res.data.templates : [];
+  const { template } = await chrome.storage.sync.get({ template: "reuniao" });
+  $("template").replaceChildren(...list.map((t) => Object.assign(new Option(t.name, t.id), { title: t.description })));
+  if (list.some((t) => t.id === template)) $("template").value = template;
+  $("template").addEventListener("change", () => chrome.storage.sync.set({ template: $("template").value }));
+  $("rec-start").disabled = !list.length;
+  if (!list.length) showRecError("O servidor não respondeu. Ligue o servidor para gravar.");
+}
+
+function showRecError(text) {
+  $("rec-error").textContent = text;
+  $("rec-error").hidden = !text;
+}
+
+$("rec-start").addEventListener("click", async () => {
+  showRecError("");
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !/^https?:/.test(tab.url || "")) {
+    return showRecError("Abra a aba da reunião, clique no ícone do Escuta nela e grave de novo.");
+  }
+
+  // A permissão de microfone não aparece no gravador invisível: pede uma vez numa aba normal.
+  const mic = await navigator.permissions.query({ name: "microphone" }).catch(() => null);
+  if (mic?.state === "prompt") {
+    await chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
+    return showRecError("Permita o microfone na aba que abriu e clique em Gravar de novo.");
+  }
+
+  let streamId;
+  try {
+    streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+  } catch (err) {
+    return showRecError(`Não consegui capturar esta aba: ${err.message || err}`);
+  }
+  $("rec-start").disabled = true;
+  const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value });
+  $("rec-start").disabled = false;
+  if (!res?.ok) return showRecError(res?.message || "Não consegui começar a gravar.");
+  refreshRec();
+});
+
+$("rec-stop").addEventListener("click", async () => {
+  $("rec-stop").disabled = true;
+  await chrome.runtime.sendMessage({ type: "rec-stop" });
+  $("rec-stop").disabled = false;
+  refreshRec();
+});
+
+$("rec-open").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL(`history.html${latestId ? `#m:${latestId}` : ""}`) });
+  window.close();
+});
+
+setInterval(() => {
+  if (!$("rec-live").hidden) $("rec-clock").textContent = fmtClock(Date.now() - recStart);
+}, 500);
+setInterval(refreshRec, 2000);
+
 loadSettings();
 checkHealth();
 checkPage();
+refreshRec();
+loadTemplates();

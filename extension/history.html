@@ -18,6 +18,14 @@
           <input id="q" type="search" placeholder="Pesquisar no texto, no resumo ou no nome…" autocomplete="off" spellcheck="false" autofocus />
         </label>
         <label>
+          <span class="sr-only">Tipo</span>
+          <select id="kind">
+            <option value="">Tudo</option>
+            <option value="voice">Mensagens de voz</option>
+            <option value="meeting">Reuniões</option>
+          </select>
+        </label>
+        <label>
           <span class="sr-only">Conversa</span>
           <select id="chat"><option value="">Todas as conversas</option></select>
         </label>
@@ -29,6 +37,7 @@
 
     <p id="empty" class="empty" hidden></p>
 
+    <script src="rec-db.js"></script>
     <script src="history.js"></script>
   </body>
 </html>

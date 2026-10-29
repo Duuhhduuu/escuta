@@ -1,0 +1,51 @@
+{
+  "name": "Acompanhamento de projeto",
+  "description": "Marcos, riscos, decisões e ações de uma reunião de status.",
+  "sections": [
+    {
+      "title": "Data e horário",
+      "instruction": "Data, horário de início e fim e quem conduziu, se for dito",
+      "format": "string"
+    },
+    {
+      "title": "Participantes",
+      "instruction": "Quem participou e o papel de cada um",
+      "format": "list"
+    },
+    {
+      "title": "Marcos e andamento",
+      "instruction": "Marcos atuais com situação e previsão de conclusão",
+      "format": "list",
+      "item_format": "| **Marco** | **Situação** | **Previsão** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Resumo do progresso",
+      "instruction": "Parágrafo curto com o que avançou desde a última reunião",
+      "format": "paragraph"
+    },
+    {
+      "title": "Principais riscos",
+      "instruction": "Riscos com impacto, plano de mitigação e responsável",
+      "format": "list",
+      "item_format": "| **Risco** | **Impacto** | **Mitigação** | **Responsável** |\n| --- | --- | --- | --- |"
+    },
+    {
+      "title": "Decisões",
+      "instruction": "Decisões tomadas, com o motivo e o horário",
+      "format": "list",
+      "item_format": "| **Decisão** | **Motivo** | **Horário** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Ações",
+      "instruction": "Tarefas com responsável, prazo, prioridade e situação",
+      "format": "list",
+      "item_format": "| **Responsável** | **Tarefa** | **Prazo** | **Prioridade** | **Situação** |\n| --- | --- | --- | --- | --- |"
+    },
+    {
+      "title": "Documentos citados",
+      "instruction": "Links, tickets ou materiais mencionados, se houver",
+      "format": "list",
+      "item_format": "| **Título** | **Endereço** | **Tipo** |\n| --- | --- | --- |"
+    }
+  ]
+}

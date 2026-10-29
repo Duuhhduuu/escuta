@@ -133,6 +133,24 @@ No ícone da extensão:
 
 O ícone da extensão mostra o estado do servidor, do Whisper (e qual motor está em uso) e do Ollama, e deixa trocar idioma e modelos.
 
+## Reuniões
+
+Além das mensagens do WhatsApp, o Escuta grava reuniões online (Google Meet, Teams, Zoom no navegador…) e escreve a ata.
+
+1. Abra a aba da reunião e clique no ícone do Escuta **nessa aba**.
+2. Em **Reunião**, escolha o modelo da ata e clique em **Gravar esta aba**. Na primeira vez o navegador pede permissão de microfone numa aba à parte; permita e clique em Gravar de novo.
+3. Quando terminar, **Parar e gerar a ata**. O ícone mostra **REC** enquanto grava, **…** enquanto processa e **✓** quando a ata está pronta. Ela aparece em **Pesquisar transcrições**, com a ata formatada, a transcrição de quem falou o quê (**Você** e **Participantes**) e botões para copiar, baixar em `.md` e refazer a ata com outro modelo.
+
+Como funciona: a extensão grava o áudio da aba e o seu microfone **em canais separados** do mesmo arquivo. O servidor transcreve cada canal sozinho e junta por horário, então sabe o que foi você e o que foram os outros sem adivinhar vozes. A ata é gerada pelo Gemini ou pelo Ollama, o mesmo dos resumos.
+
+- **Use fones de ouvido.** Sem fone, o microfone também capta o alto-falante. O servidor descarta o que for repetição do que saiu da aba, mas fone é mais limpo.
+- A gravação é salva no disco do navegador a cada 10 s. Se o servidor estiver desligado ao parar, ou o navegador cair, o áudio não se perde: a reunião aparece com **Tentar de novo**.
+- Fechar a aba da reunião encerra a gravação e gera a ata com o que foi gravado.
+- Uma reunião de 1 h tem uns 30 MB e leva alguns minutos para transcrever numa placa NVIDIA. Enquanto isso, mensagens de voz do WhatsApp esperam a vez.
+- Só Chrome e Brave. O Firefox não tem a captura de aba que isso usa; lá a seção Reunião nem aparece.
+- Modelos de ata: reunião padrão, daily, projeto, retrospectiva, cliente e aula, em `server/templates/`. Para criar o seu, copie um `.json` da pasta e mude; vale na hora, sem reiniciar. Os cinco primeiros são adaptados do [Meetily](https://github.com/Zackriya-Solutions/meetily) (MIT); veja `server/templates/CREDITS.md`.
+- Com o Ollama, desligamos o "pensamento" do modelo (`think: false`): em transcrição longa, modelos que pensam gastavam o contexto raciocinando e a ata saía vazia.
+
 ## Notas
 
 - O modelo Whisper baixa na primeira transcrição (`large-v3-turbo` ≈ 1,6 GB). Depois ele é carregado já no boot do servidor e fica na memória, então a primeira mensagem de voz não paga essa espera.

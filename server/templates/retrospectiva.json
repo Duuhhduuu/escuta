@@ -1,0 +1,45 @@
+{
+  "name": "Retrospectiva",
+  "description": "O que começar, parar e continuar fazendo.",
+  "sections": [
+    {
+      "title": "Ciclo",
+      "instruction": "Nome ou número do ciclo (sprint) e o período, se forem ditos",
+      "format": "string"
+    },
+    {
+      "title": "Participantes",
+      "instruction": "Quem participou",
+      "format": "list"
+    },
+    {
+      "title": "Começar a fazer",
+      "instruction": "Ações ou experimentos para começar no próximo ciclo",
+      "format": "list",
+      "item_format": "| **Ideia** | **Quem propôs** |\n| --- | --- |"
+    },
+    {
+      "title": "Parar de fazer",
+      "instruction": "Práticas para abandonar",
+      "format": "list",
+      "item_format": "| **Prática** | **Motivo** |\n| --- | --- |"
+    },
+    {
+      "title": "Continuar fazendo",
+      "instruction": "Práticas que funcionam e devem continuar",
+      "format": "list",
+      "item_format": "| **Prática** | **Observações** |\n| --- | --- |"
+    },
+    {
+      "title": "Ações",
+      "instruction": "Experimentos concretos com responsável e como medir o sucesso",
+      "format": "list",
+      "item_format": "| **Responsável** | **Tarefa** | **Prazo** | **Como medir** |\n| --- | --- | --- | --- |"
+    },
+    {
+      "title": "Notas e votos",
+      "instruction": "Resumo da conversa e dos itens mais votados",
+      "format": "paragraph"
+    }
+  ]
+}

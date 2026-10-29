@@ -132,7 +132,8 @@ async function handle(msg) {
     case "health":
       return call("/health", { method: "GET" }, 3_000);
     default:
-      return fail("unknown", "Mensagem desconhecida.");
+      // Reuniões: gravar, parar, estado e modelos de ata ficam em meetings.js.
+      return (typeof meetingHandle === "function" && meetingHandle(msg)) || fail("unknown", "Mensagem desconhecida.");
   }
 }
 
@@ -176,3 +177,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   handle(msg).then(sendResponse);
   return true;
 });
+
+// Reuniões. O service worker do Chrome carrega os arquivos aqui; no Firefox eles já
+// vêm na lista "scripts" do manifest, e importScripts não existe.
+if (typeof importScripts === "function") importScripts("rec-db.js", "meetings.js");
