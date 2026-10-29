@@ -94,12 +94,24 @@
     const sources = new Map();
     const attach = (who, track) => {
       if (track.readyState !== "live" || sources.has(track)) return;
-      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      const stream = new MediaStream([track]);
+      // O Chrome só entrega o som de uma faixa remota (WebRTC) ao Web Audio se ela também estiver
+      // ligada a um elemento de mídia. Sem isso o canal dos participantes sai mudo. O elemento fica
+      // mudo: quem toca o som para você continua sendo o Meet.
+      let keep = null;
+      if (who === "outros") {
+        keep = new Audio();
+        keep.muted = true;
+        keep.srcObject = stream;
+        keep.play().catch(() => {});
+      }
+      const source = ctx.createMediaStreamSource(stream);
       source.connect(mixes[who]);
       sources.set(track, source);
       track.addEventListener("ended", () => {
         source.disconnect();
         sources.delete(track);
+        if (keep) keep.srcObject = null;
       });
     };
 
@@ -122,16 +134,22 @@
     tap.connect(mute);
     mute.connect(ctx.destination);
 
-    capture = { ctx, attach, sources };
+    // Faixas que o Meet liga sem disparar o evento "track" (ou antes de o gancho existir) só
+    // aparecem nos receptores da conexão: confere de tempos em tempos enquanto grava.
+    const scan = () => {
+      for (const pc of pcs) for (const receiver of pc.getReceivers?.() || []) if (receiver.track?.kind === "audio" && !remotes.has(receiver.track)) addTrack(remotes, receiver.track);
+    };
+    capture = { ctx, attach, sources, scanner: setInterval(scan, 2000) };
     for (const track of locals) attach("voce", track);
     for (const track of remotes) attach("outros", track);
-    for (const pc of pcs) for (const receiver of pc.getReceivers?.() || []) if (receiver.track?.kind === "audio") addTrack(remotes, receiver.track);
+    scan();
     ctx.resume().catch(() => {});
   }
 
   function stopCapture() {
     if (!capture) return;
-    const { ctx } = capture;
+    const { ctx, scanner } = capture;
+    clearInterval(scanner);
     capture = null;
     ctx.close().catch(() => {});
   }
