@@ -25,6 +25,7 @@ let rec = null;
 let live = { id: null, lines: [], error: null, lag: false };
 let meeting = null;
 let notes = { id: null, text: "" };
+let goal = { id: null, text: "" };
 let seen = 0; // quantas falas já estavam na tela, para saber se chegou coisa nova
 let stick = true; // acompanhando o fim; sobe para reler e a janela para de puxar
 
@@ -168,7 +169,28 @@ function paintState() {
 }
 
 // As notas ficam em storage.session enquanto grava e, depois de parar, na própria reunião.
+function paintGoal() {
+  const field = $("goal");
+  field.disabled = !rec;
+  if (document.activeElement === field) return; // não mexe no que a pessoa está digitando
+  const text = rec ? (goal.id === rec.id ? goal.text : "") : meeting?.goal || "";
+  if (field.value !== text) field.value = text;
+}
+
+let savingGoal = 0;
+function saveGoal() {
+  clearTimeout(savingGoal);
+  if (!rec) return Promise.resolve();
+  goal = { id: rec.id, text: $("goal").value.trim() };
+  return chrome.storage.session.set({ goal });
+}
+$("goal").addEventListener("input", () => {
+  clearTimeout(savingGoal);
+  savingGoal = setTimeout(saveGoal, 400);
+});
+
 function paintNotes() {
+  paintGoal();
   const box = $("notes");
   box.disabled = !rec;
   if (document.activeElement === box) return; // não mexe no que a pessoa está digitando
@@ -208,7 +230,8 @@ function tick() {
 }
 
 async function read() {
-  const session = await chrome.storage.session.get(["rec", "live", "notes"]);
+  const session = await chrome.storage.session.get(["rec", "live", "notes", "goal"]);
+  goal = session.goal || { id: null, text: "" };
   rec = session.rec || null;
   live = session.live || { id: null, lines: [], error: null, lag: false };
   notes = session.notes || { id: null, text: "" };
@@ -226,6 +249,7 @@ $("stop").addEventListener("click", async () => {
     return;
   }
   await saveNotes(); // o que ainda não passou pelo atraso de 400 ms entra na ata
+  await saveGoal();
   await chrome.runtime.sendMessage({ type: "rec-stop-soon" }).catch(() => {});
 });
 

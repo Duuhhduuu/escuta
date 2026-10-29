@@ -243,7 +243,7 @@ $("rec-start").addEventListener("click", async () => {
     return showRecError(`Não consegui capturar esta aba: ${err.message || err}`);
   }
   $("rec-start").disabled = true;
-  const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value, mic: micGranted });
+  const res = await chrome.runtime.sendMessage({ type: "rec-start", streamId, tabId: tab.id, title: tab.title, template: $("template").value, mic: micGranted, goal: $("goal").value.trim() });
   $("rec-start").disabled = false;
   if (!res?.ok) return showRecError(res?.message || "Não consegui começar a gravar.");
   // O painel entra na própria aba da reunião; se a página não deixar, cai para uma janela solta.

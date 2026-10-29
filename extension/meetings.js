@@ -6,6 +6,7 @@ const MEETING_PREFIX = "m:";
 const REC_KEY = "rec"; // gravação em andamento; storage.session sobrevive ao service worker dormir
 const LIVE_KEY = "live"; // texto ao vivo da gravação em andamento: { id, lines, error, lag }
 const NOTES_KEY = "notes"; // o que a pessoa anota no painel: { id, text }
+const GOAL_KEY = "goal"; // objetivo da reunião, escrito antes ou durante: { id, text }
 const LIVE_LINES_MAX = 5000;
 
 const canRecord = () => Boolean(chrome.offscreen && chrome.tabCapture);
@@ -124,7 +125,7 @@ async function showLive(tabId) {
 
 // ---- gravar ---------------------------------------------------------------------
 
-async function startMeeting({ streamId, tabId, title, template, mic, source }) {
+async function startMeeting({ streamId, tabId, title, template, mic, source, goal }) {
   if (!canRecord()) return fail("unsupported", "Gravar reunião só funciona no Chrome e no Brave.");
   if (await getRec()) return fail("busy", "Já existe uma gravação em andamento.");
 
@@ -137,7 +138,7 @@ async function startMeeting({ streamId, tabId, title, template, mic, source }) {
     settings.live === false
       ? null
       : { base: BASE, language: settings.language, model: await resolveModel(settings.whisperModel), token: await getToken() };
-  await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY]); // texto e notas da reunião anterior
+  await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY, GOAL_KEY]); // texto, notas e objetivo da reunião anterior
   try {
     await ensureOffscreen(source);
   } catch (err) {
@@ -175,6 +176,7 @@ async function startMeeting({ streamId, tabId, title, template, mic, source }) {
     live: settings.live !== false, // pedido pela pessoa; se o captador subiu, quem diz é liveReady
     language: settings.language,
   });
+  if (goal && String(goal).trim()) await chrome.storage.session.set({ [GOAL_KEY]: { id, text: String(goal).trim().slice(0, 500) } });
   setBadge("REC", "#b42318");
   logRec(
     `gravando: ${res.mic ? "microfone ok" : `sem microfone (${res.micError || "?"})`}; ` +
@@ -251,7 +253,7 @@ async function discardMeeting() {
   await toOffscreen({ type: "stop" });
   await closeOffscreen();
   await RecDB.drop(rec.id).catch(() => {});
-  await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY]);
+  await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY, GOAL_KEY]);
   await setRec(null);
   setBadge("", null);
   logRec("gravação descartada pela pessoa");
@@ -270,6 +272,8 @@ async function stopMeeting() {
     await closeOffscreen();
     const written = (await chrome.storage.session.get(NOTES_KEY))[NOTES_KEY];
     const notes = written?.id === rec.id ? String(written.text || "").trim() : "";
+    const goalWritten = (await chrome.storage.session.get(GOAL_KEY))[GOAL_KEY];
+    const goal = goalWritten?.id === rec.id ? String(goalWritten.text || "").trim() : "";
     // Mesmo que o gravador não responda, o que já foi salvo em disco ainda dá uma reunião.
     await saveMeeting({
       id: rec.id,
@@ -281,6 +285,7 @@ async function stopMeeting() {
       language: rec.language,
       mic: rec.mic,
       notes,
+      goal,
       status: "processing",
       stage: "upload",
       progress: 0,
@@ -347,6 +352,7 @@ async function writeMinutes(id, template) {
       body: JSON.stringify({
         segments: entry.segments,
         notes: entry.notes || "",
+        goal: entry.goal || "",
         template,
         language: settings.language,
         model: settings.ollamaModel,
@@ -561,6 +567,7 @@ async function askMeeting({ id, question }) {
           segments: m.segments || [],
           minutes: m.minutes || "",
           notes: m.notes || "",
+          goal: m.goal || "",
           history: (m.chat || []).slice(-12),
           language: settings.language,
           model: settings.ollamaModel,
@@ -585,6 +592,9 @@ function meetingHandle(msg) {
   switch (msg.type) {
     case "meeting-ask":
       return askMeeting(msg);
+    case "meeting-goal":
+      // O objetivo pode ser escrito ou mudado depois; vale na próxima ata gerada.
+      return patchMeeting(msg.id, { goal: String(msg.goal || "").trim().slice(0, 500) }).then((m) => (m ? { ok: true, data: {} } : fail("gone", "Reunião apagada.")));
     case "rec-state":
       return (async () => {
         let rec = await getRec();

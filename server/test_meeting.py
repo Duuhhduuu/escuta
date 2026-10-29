@@ -192,5 +192,35 @@ class Ask(unittest.TestCase):
         self.assertIn("Não invente", meeting.ask_prompt())
 
 
+class Goal(unittest.TestCase):
+    def test_goal_adds_a_section_and_the_verdict_rules(self):
+        template = meeting.load_templates()["reuniao"]
+        sem = meeting.minutes_prompt(template, "pt")
+        com = meeting.minutes_prompt(template, "pt", goal="Fechar o contrato com a Padaria Central")
+        self.assertNotIn(meeting.GOAL_TITLE, sem)
+        self.assertIn(f"## {meeting.GOAL_TITLE}", com)
+        self.assertIn("Fechar o contrato com a Padaria Central", com)
+        for piece in ("Parcialmente", "Como melhorar na próxima", "O que faltou", "Reunião padrão"):
+            self.assertIn(piece, com)
+        # o objetivo vem antes das seções do modelo
+        self.assertLess(com.index(f"## {meeting.GOAL_TITLE}"), com.index("## Em uma frase"))
+
+    def test_goal_is_cleaned(self):
+        self.assertEqual(meeting.clean_goal("  Fechar \n  contrato «já» "), "Fechar contrato já")
+        self.assertEqual(len(meeting.clean_goal("x" * 900)), 500)
+        self.assertEqual(meeting.clean_goal(None), "")
+
+    def test_chat_message_carries_the_goal(self):
+        msg = meeting.ask_message("Alcançamos?", "[00:10] Você: oi", goal="Fechar o contrato")
+        self.assertIn("Objetivo que a pessoa definiu", msg)
+        self.assertIn("Fechar o contrato", msg)
+        self.assertNotIn("Objetivo que a pessoa definiu", meeting.ask_message("x", "y"))
+
+    def test_sales_and_alignment_templates_exist(self):
+        found = meeting.load_templates()
+        self.assertIn("venda", found)
+        self.assertIn("alinhamento", found)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

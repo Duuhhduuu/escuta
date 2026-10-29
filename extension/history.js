@@ -386,19 +386,35 @@ function meetingRow(m, terms) {
 }
 
 // O resumo do topo: o primeiro trecho da ata que é texto corrido (uma lista ou tabela não resume nada).
-function summaryOf(minutes) {
+const GOAL_TITLE = /^objetivo da reuni/i;
+
+function sectionsOf(minutes) {
   const body = (minutes || "").replace(/^#\s+.+\n+/, "");
   const parts = body.split(/^##\s+/m);
+  return { pre: parts[0].trim(), list: parts.slice(1).map((s) => ({ title: s.split("\n")[0].trim(), text: s.split("\n").slice(1).join("\n").trim() })) };
+}
+
+function summaryOf(minutes) {
+  const { pre, list } = sectionsOf(minutes);
   const prose = (t) => t && !/^\s*([-*•]\s|\d+[.)]\s|\|)/.test(t);
-  const pre = parts[0].trim();
   if (prose(pre)) return pre;
-  const sections = parts.slice(1).map((s) => s.split("\n").slice(1).join("\n").trim());
-  return sections.find(prose) || sections[0] || "";
+  const own = list.filter((s) => !GOAL_TITLE.test(s.title)); // o objetivo tem cartão próprio
+  return (own.find((s) => prose(s.text)) || own[0])?.text || "";
+}
+
+// A seção "Objetivo da reunião" da ata: o veredito (Sim, Parcialmente ou Não) e o resto do texto.
+function goalOf(minutes) {
+  const section = sectionsOf(minutes).list.find((s) => GOAL_TITLE.test(s.title));
+  if (!section) return null;
+  const m = section.text.match(/^\W*(sim|parcialmente|n[ãa]o)\b\.?\s*/i);
+  const word = m ? m[1].toLowerCase().replace("nao", "não") : "";
+  return { verdict: word, text: m ? section.text.slice(m[0].length) : section.text };
 }
 
 // ---- conversa sobre a reunião -------------------------------------------------------
 
 const SUGGESTIONS = ["Quais foram as decisões?", "O que eu preciso fazer e até quando?", "Resuma em 3 linhas", "Ficou alguma dúvida em aberto?"];
+const GOAL_SUGGESTION = "Alcançamos o objetivo? O que eu poderia ter feito melhor?";
 const ui = { id: "", tab: "chat", draft: "", pending: null, base: 0, error: null };
 
 function chatPane(m, terms) {
@@ -447,7 +463,7 @@ function chatPane(m, terms) {
       const empty = el("div", "chat-empty");
       empty.append(el("p", null, "Pergunte o que quiser sobre esta reunião. As respostas saem só do que foi dito."));
       const chips = el("div", "chips");
-      for (const q of SUGGESTIONS) chips.append(button(q, () => ask(q), "chip-btn"));
+      for (const q of m.goal ? [GOAL_SUGGESTION, ...SUGGESTIONS] : SUGGESTIONS) chips.append(button(q, () => ask(q), "chip-btn"));
       empty.append(chips);
       rows.push(empty);
     }
@@ -575,6 +591,30 @@ function meetingDetail(m, terms) {
 
   // O resumo já aparece no topo; as abas trazem a conversa (que abre primeiro), a ata e a transcrição.
   if (ui.id !== m.id) Object.assign(ui, { id: m.id, tab: "chat", draft: "", pending: null, base: 0, error: null });
+  // Objetivo: o que a pessoa escreveu, o veredito da ata e, abaixo, o que faltou e como melhorar.
+  const goalBox = el("div", "goal-card");
+  const goalHead = el("div", "goal-head");
+  goalHead.append(el("div", "label", "Objetivo"));
+  const verdict = goalOf(m.minutes);
+  if (verdict?.verdict) {
+    const tone = { sim: "ok", parcialmente: "mid", "não": "bad" }[verdict.verdict];
+    goalHead.append(el("span", `chip chip--${tone}`, { sim: "Alcançado", parcialmente: "Em parte", "não": "Não alcançado" }[verdict.verdict]));
+  }
+  const goalInput = Object.assign(el("input", "goal-input"), { type: "text", maxLength: 500, value: m.goal || "", placeholder: "Qual era o objetivo desta reunião?" });
+  goalInput.setAttribute("aria-label", "Objetivo da reunião");
+  goalInput.addEventListener("change", () => send({ type: "meeting-goal", id: m.id, goal: goalInput.value }));
+  goalBox.append(goalHead, goalInput);
+  if (verdict?.text) {
+    const body = el("div", "md");
+    body.append(markdown(verdict.text, terms));
+    goalBox.append(body);
+  } else if (!m.goal) {
+    goalBox.append(el("p", "hint", "Escreva o objetivo e clique em Refazer ata: a ata diz se foi alcançado e como melhorar na próxima."));
+  } else if (!verdict) {
+    goalBox.append(el("p", "hint", "Clique em Refazer ata para a ata avaliar este objetivo."));
+  }
+  view.insertBefore(goalBox, bar);
+
   const summary = summaryOf(m.minutes);
   if (summary) {
     const card = el("div", "summary-card");

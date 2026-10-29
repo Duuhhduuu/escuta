@@ -7,7 +7,7 @@ POST /summarize    {"text", ...}   -> {"summary"}            (Ollama or Gemini)
 POST /live         PCM 16 kHz mono -> {"segments"}   (janela curta, para a transcrição ao vivo)
 POST /meeting      stereo audio    -> NDJSON, {"stage"} e no fim {"done", "segments"}
                                       (esquerda = você, direita = os outros)
-POST /minutes      {"segments" ou "transcript", "template"} -> {"minutes"}   (ata em Markdown)
+POST /minutes      {"segments" ou "transcript", "template", "goal"} -> {"minutes"}   (ata em Markdown)
 POST /ask          {"question", "segments", "minutes", "history"} -> {"answer"}   (pergunta sobre uma reunião)
 GET  /templates                    -> modelos de ata
 GET  /health                       -> engine status
@@ -536,7 +536,7 @@ def complete(system, user, model, timeout):
     return summarize(user, model or DEFAULT_OLLAMA, system, timeout)
 
 
-def make_minutes(transcript, template_id, language, model, notes=""):
+def make_minutes(transcript, template_id, language, model, notes="", goal=""):
     template = meeting.load_templates().get(template_id)  # relê a pasta: modelo novo vale sem reiniciar
     if template is None:
         raise ApiError(404, "template_missing", f"Modelo '{template_id}' não existe.")
@@ -550,7 +550,7 @@ def make_minutes(transcript, template_id, language, model, notes=""):
     user = f"Transcrição da reunião:\n\n{transcript}"
     if notes:
         user += f"\n\nAnotações de quem gravou, feitas durante a reunião:\n{notes}"
-    return complete(meeting.minutes_prompt(template, language, bool(notes)), user, model, 600)
+    return complete(meeting.minutes_prompt(template, language, bool(notes), goal), user, model, 600)
 
 
 def answer_question(payload):
@@ -565,7 +565,7 @@ def answer_question(payload):
     if not (transcript or minutes):
         raise ApiError(400, "empty_text", "Esta reunião não tem texto para consultar.")
     limit = 300_000 if GEMINI_KEY else 20_000
-    user = meeting.ask_message(question, transcript, minutes, notes, payload.get("history"), limit)
+    user = meeting.ask_message(question, transcript, minutes, notes, payload.get("history"), limit, payload.get("goal") or "")
     answer = complete(meeting.ask_prompt(payload.get("language") or "pt"), user, payload.get("model"), 180)
     return {"answer": answer.strip()}
 
@@ -844,6 +844,7 @@ class Handler(BaseHTTPRequestHandler):
                         payload.get("language") or "pt",
                         payload.get("model"),
                         notes,
+                        payload.get("goal") or "",
                     )
                 }
 

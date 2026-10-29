@@ -64,16 +64,40 @@ def public_list(templates):
     return [{"id": key, "name": t["name"], "description": t.get("description", "")} for key, t in templates.items()]
 
 
-def structure(template):
+GOAL_TITLE = "Objetivo da reunião"
+
+
+def clean_goal(goal):
+    """O objetivo que a pessoa escreveu, em uma linha e sem aspas que confundiriam o pedido."""
+    text = " ".join(str(goal or "").split())
+    return text.replace("«", "").replace("»", "")[:500]
+
+
+def structure(template, goal=""):
     """O esqueleto em Markdown que o modelo de linguagem preenche."""
     lines = ["# <Título da reunião>", ""]
+    if goal:
+        lines += [f"## {GOAL_TITLE}", ""]
     for section in template["sections"]:
         lines += [f"## {section['title']}", ""]
     return "\n".join(lines)
 
 
-def section_instructions(template):
+def goal_instruction(goal, kind):
+    return (
+        f"- **Seção '{GOAL_TITLE}':** a pessoa definiu este objetivo: «{goal}». "
+        "Comece com uma só palavra, Sim, Parcialmente ou Não, seguida de ponto, dizendo se a reunião o alcançou. "
+        "Em seguida, em 2 ou 3 frases, mostre o que foi dito que comprova isso, com o horário. "
+        "Depois escreva duas listas curtas: 'O que faltou' (omita se nada faltou) e 'Como melhorar na próxima', "
+        f"com 2 a 3 sugestões práticas, específicas para uma reunião do tipo «{kind}» e baseadas no que aconteceu. "
+        "Nada de elogio genérico."
+    )
+
+
+def section_instructions(template, goal=""):
     lines = ["- **Título principal (`# ...`):** leia a transcrição inteira e crie um título curto e descritivo."]
+    if goal:
+        lines.append(goal_instruction(goal, template.get("name", "reunião")))
     for section in template["sections"]:
         lines.append(f"- **Seção '{section['title']}':** {section['instruction'].rstrip('.')}.")
         item = section.get("item_format") or section.get("example_item_format")
@@ -82,7 +106,8 @@ def section_instructions(template):
     return "\n".join(lines)
 
 
-def minutes_prompt(template, language="pt", notes=False):
+def minutes_prompt(template, language="pt", notes=False, goal=""):
+    goal = clean_goal(goal)
     idioma = LANGUAGES.get(language, LANGUAGES["pt"])
     rules = [
         f"Escreva em {idioma}.",
@@ -98,14 +123,16 @@ def minutes_prompt(template, language="pt", notes=False):
             "Depois da transcrição vêm as 'Anotações de quem gravou', escritas durante a reunião. Não são falas: "
             "use-as para acertar a grafia de nomes e termos e para dar destaque ao que a pessoa marcou como importante."
         )
+    if goal:
+        rules.append("Julgue o objetivo com honestidade, só pelo que a transcrição mostra. Se a conversa não chegou lá, diga Não ou Parcialmente.")
     rules.append("Responda só com o Markdown da ata, sem comentários antes ou depois.")
     numbered = "\n".join(f"{i}. {rule}" for i, rule in enumerate(rules, 1))
     return (
         "Você é um redator experiente de atas de reunião. Preencha o modelo em Markdown abaixo "
         "com base na transcrição que o usuário enviar.\n\n"
         f"Regras:\n{numbered}\n\n"
-        f"Instruções por seção:\n{section_instructions(template)}\n\n"
-        f"Estrutura do modelo:\n\n{structure(template)}"
+        f"Instruções por seção:\n{section_instructions(template, goal)}\n\n"
+        f"Estrutura do modelo:\n\n{structure(template, goal)}"
     )
 
 
@@ -177,10 +204,13 @@ def clean_history(history):
     return turns[-ASK_MAX_HISTORY:]
 
 
-def ask_message(question, transcript, minutes="", notes="", history=None, limit=20_000):
+def ask_message(question, transcript, minutes="", notes="", history=None, limit=20_000, goal=""):
     """O pedido que vai ao modelo: contexto da reunião, conversa até aqui e a pergunta."""
     question = str(question or "").strip()[:ASK_MAX_QUESTION]
     parts = []
+    goal = clean_goal(goal)
+    if goal:
+        parts.append(f"Objetivo que a pessoa definiu para a reunião:\n{goal}")
     if minutes:
         parts.append(f"Ata da reunião:\n{minutes.strip()}")
     if notes:
