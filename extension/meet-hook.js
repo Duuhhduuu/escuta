@@ -53,11 +53,13 @@
   const isLocalId = (track) => [...locals].some((l) => l.id === track.id);
 
   // Para investigar no console da página do Meet: __escutaDebug()
+  const peak = { voce: 0, outros: 0 };
   window.__escutaDebug = () => ({
     gravando: Boolean(capture),
     voce: [...locals].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
-    outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
+    outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted, ativa: t.enabled })),
     conexoes: [...pcs].map((p) => p.connectionState),
+    pico: { ...peak }, // maior volume (0 a 1) desde o início da captura: "outros" em 0 = chega mudo
     elementos: [...document.querySelectorAll("audio, video")].map((e) => ({ tag: e.tagName, stream: e.srcObject instanceof MediaStream, faixas: e.srcObject?.getAudioTracks?.().length ?? 0 })),
   });
 
@@ -138,6 +140,10 @@
     tap.onaudioprocess = (event) => {
       const voce = toPcm(event.inputBuffer.getChannelData(0));
       const outros = toPcm(event.inputBuffer.getChannelData(1));
+      for (const [who, ch] of [["voce", 0], ["outros", 1]]) {
+        const data = event.inputBuffer.getChannelData(ch);
+        for (let i = 0; i < data.length; i++) if (Math.abs(data[i]) > peak[who]) peak[who] = Math.abs(data[i]);
+      }
       post({ type: "audio", voce, outros }, [voce, outros]);
     };
     const mute = ctx.createGain(); // o processador só roda ligado ao destino; ganho 0 não toca nada
