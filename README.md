@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="brand/readme-header.png" alt="escuta: transcreve e resume mensagens de voz e reuniões" width="760">
+</p>
+
 # Escuta
 
 Extensão pessoal para o Chrome. Adiciona um botão **Transcrever** em cada mensagem de voz do WhatsApp Web e, depois, **Resumir**. Tudo roda na sua máquina.
@@ -168,3 +172,7 @@ Como funciona: a extensão grava o áudio da aba e o seu microfone **em canais s
 - Rodando o servidor no WSL: funciona pelo encaminhamento de `localhost` do WSL2, mas sem acesso à GPU por padrão. Rodar nativo no Windows é mais simples.
 - Teste rápido do servidor: `python server\server.py --selfcheck`.
 - Teste completo (sobe o servidor numa porta livre, transcreve de verdade e confere o streaming): `server/.venv/bin/python server/test_server.py` no Mac, `server\.venv\Scripts\python server\test_server.py` no Windows.
+
+## Identidade visual
+
+Logo, símbolo, banner e ícones ficam em `brand/`. Cores: âmbar `#FFC53D`, tinta `#0E1424`, sinal `#3347FF`. Fontes: Bricolage Grotesque, Instrument Sans e JetBrains Mono (empacotadas em `extension/fonts`).
