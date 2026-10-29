@@ -385,6 +385,112 @@ function meetingRow(m, terms) {
   return row;
 }
 
+// O resumo do topo: o primeiro trecho da ata que é texto corrido (uma lista ou tabela não resume nada).
+function summaryOf(minutes) {
+  const body = (minutes || "").replace(/^#\s+.+\n+/, "");
+  const parts = body.split(/^##\s+/m);
+  const prose = (t) => t && !/^\s*([-*•]\s|\d+[.)]\s|\|)/.test(t);
+  const pre = parts[0].trim();
+  if (prose(pre)) return pre;
+  const sections = parts.slice(1).map((s) => s.split("\n").slice(1).join("\n").trim());
+  return sections.find(prose) || sections[0] || "";
+}
+
+// ---- conversa sobre a reunião -------------------------------------------------------
+
+const SUGGESTIONS = ["Quais foram as decisões?", "O que eu preciso fazer e até quando?", "Resuma em 3 linhas", "Ficou alguma dúvida em aberto?"];
+const ui = { id: "", tab: "chat", draft: "", pending: null, base: 0, error: null };
+
+function chatPane(m, terms) {
+  const pane = el("div", "pane chat");
+  const log = el("div", "chat-log");
+  log.setAttribute("aria-live", "polite");
+
+  const form = el("form", "chat-form");
+  const input = Object.assign(el("textarea"), { rows: 1, placeholder: "Pergunte algo sobre esta reunião…", value: ui.draft });
+  input.setAttribute("aria-label", "Pergunta sobre a reunião");
+  const submit = el("button", "primary", "Perguntar");
+  submit.type = "submit";
+  form.append(input, submit);
+
+  const bubble = (role, node) => {
+    const b = el("div", `msg msg--${role}`);
+    b.append(node);
+    return b;
+  };
+
+  function draw() {
+    const saved = m.chat || [];
+    const rows = [];
+    for (const turn of saved) {
+      if (turn.role === "user") rows.push(bubble("user", el("p", null, turn.content)));
+      else {
+        const body = el("div", "md");
+        body.append(markdown(turn.content, []));
+        rows.push(bubble("ai", body));
+      }
+    }
+    const waiting = ui.pending && saved.length <= ui.base;
+    if (waiting) {
+      rows.push(bubble("user", el("p", null, ui.pending)));
+      const busy = el("p", "busy");
+      busy.setAttribute("role", "status");
+      busy.append(el("span", "pulse"), "Lendo a reunião…");
+      rows.push(bubble("ai", busy));
+    }
+    if (ui.error && !waiting) {
+      const err = el("div", "msg msg--ai msg--err");
+      err.append(el("p", null, ui.error.message), button("Tentar de novo", () => ask(ui.error.question)));
+      rows.push(err);
+    }
+    if (!rows.length) {
+      const empty = el("div", "chat-empty");
+      empty.append(el("p", null, "Pergunte o que quiser sobre esta reunião. As respostas saem só do que foi dito."));
+      const chips = el("div", "chips");
+      for (const q of SUGGESTIONS) chips.append(button(q, () => ask(q), "chip-btn"));
+      empty.append(chips);
+      rows.push(empty);
+    }
+    log.replaceChildren(...rows);
+    submit.disabled = Boolean(waiting);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function ask(question) {
+    const text = question.trim();
+    if (!text || (ui.pending && (m.chat || []).length <= ui.base)) return;
+    ui.pending = text;
+    ui.base = (m.chat || []).length;
+    ui.error = null;
+    ui.draft = input.value = "";
+    draw();
+    const res = await send({ type: "meeting-ask", id: m.id, question: text });
+    ui.pending = null;
+    if (!res?.ok) ui.error = { question: text, message: res?.message || "Não consegui responder agora." };
+    draw();
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    ask(input.value);
+  });
+  input.addEventListener("input", () => {
+    ui.draft = input.value;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  pane.append(log, form);
+  draw();
+  return pane;
+}
+
 // A reunião aberta: assunto e data no topo, e o conteúdo em duas abas (ata e transcrição).
 function meetingDetail(m, terms) {
   const view = el("section", "detail");
@@ -467,25 +573,38 @@ function meetingDetail(m, terms) {
   }
   transcript.append(lines.length ? list : el("p", "hint", "Nenhuma fala reconhecida."));
 
+  // O resumo já aparece no topo; as abas trazem a conversa (que abre primeiro), a ata e a transcrição.
+  if (ui.id !== m.id) Object.assign(ui, { id: m.id, tab: "chat", draft: "", pending: null, base: 0, error: null });
+  const summary = summaryOf(m.minutes);
+  if (summary) {
+    const card = el("div", "summary-card");
+    const body = el("div", "md");
+    body.append(markdown(summary, terms));
+    card.append(el("div", "label", "Resumo"), body);
+    view.insertBefore(card, bar);
+  }
+
+  const chat = chatPane(m, terms);
+  const panes = { chat, ata, transcript };
   const tabs = el("div", "tabs");
   tabs.setAttribute("role", "tablist");
-  const mk = (label, pane) => {
-    const t = button(label, () => {
-      for (const [other, p] of all) {
-        other.setAttribute("aria-selected", String(other === t));
-        p.hidden = other !== t;
-      }
-    }, "tab");
-    t.setAttribute("role", "tab");
-    return t;
+  const labels = { chat: "Perguntar", ata: "Ata", transcript: `Transcrição (${lines.length})` };
+  const tabButtons = {};
+  const select = (key) => {
+    ui.tab = key;
+    for (const [k, b] of Object.entries(tabButtons)) {
+      b.setAttribute("aria-selected", String(k === key));
+      panes[k].hidden = k !== key;
+    }
   };
-  const tAta = mk("Ata", ata);
-  const tTrans = mk(`Transcrição (${lines.length})`, transcript);
-  const all = [[tAta, ata], [tTrans, transcript]];
-  tAta.setAttribute("aria-selected", "true");
-  tTrans.setAttribute("aria-selected", "false");
-  tabs.append(tAta, tTrans);
-  view.append(tabs, ata, transcript);
+  for (const key of ["chat", "ata", "transcript"]) {
+    const t = button(labels[key], () => select(key), "tab");
+    t.setAttribute("role", "tab");
+    tabButtons[key] = t;
+    tabs.append(t);
+  }
+  view.append(tabs, chat, ata, transcript);
+  select(ui.tab in panes ? ui.tab : "chat");
   return view;
 }
 

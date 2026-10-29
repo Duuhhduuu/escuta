@@ -8,6 +8,7 @@ POST /live         PCM 16 kHz mono -> {"segments"}   (janela curta, para a trans
 POST /meeting      stereo audio    -> NDJSON, {"stage"} e no fim {"done", "segments"}
                                       (esquerda = você, direita = os outros)
 POST /minutes      {"segments" ou "transcript", "template"} -> {"minutes"}   (ata em Markdown)
+POST /ask          {"question", "segments", "minutes", "history"} -> {"answer"}   (pergunta sobre uma reunião)
 GET  /templates                    -> modelos de ata
 GET  /health                       -> engine status
 
@@ -552,6 +553,23 @@ def make_minutes(transcript, template_id, language, model, notes=""):
     return complete(meeting.minutes_prompt(template, language, bool(notes)), user, model, 600)
 
 
+def answer_question(payload):
+    question = str(payload.get("question") or "").strip()
+    if not question:
+        raise ApiError(400, "empty_text", "Escreva a pergunta.")
+    transcript = (payload.get("transcript") or "").strip()
+    if not transcript and payload.get("segments"):
+        transcript = meeting.format_transcript(payload["segments"])
+    minutes = str(payload.get("minutes") or "").strip()
+    notes = str(payload.get("notes") or "").strip()[:20_000]
+    if not (transcript or minutes):
+        raise ApiError(400, "empty_text", "Esta reunião não tem texto para consultar.")
+    limit = 300_000 if GEMINI_KEY else 20_000
+    user = meeting.ask_message(question, transcript, minutes, notes, payload.get("history"), limit)
+    answer = complete(meeting.ask_prompt(payload.get("language") or "pt"), user, payload.get("model"), 180)
+    return {"answer": answer.strip()}
+
+
 def ollama_models():
     try:
         with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=1.5) as res:
@@ -830,6 +848,18 @@ class Handler(BaseHTTPRequestHandler):
                 }
 
             self._guard(run_minutes)
+        elif url.path == "/ask":
+
+            def run_ask():
+                try:
+                    payload = json.loads(self._read_body())
+                except ValueError as exc:
+                    raise ApiError(400, "bad_json", "JSON inválido.") from exc
+                if not isinstance(payload, dict):
+                    raise ApiError(400, "bad_json", "JSON inválido.")
+                return answer_question(payload)
+
+            self._guard(run_ask)
         else:
             self._send(404, {"code": "not_found", "message": "Rota não existe."})
 

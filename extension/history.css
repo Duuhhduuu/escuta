@@ -221,3 +221,28 @@ button.tab[aria-selected="true"] { border-bottom-color: var(--acc); color: var(-
 .pane[hidden] { display: none; }
 .detail .minutes { font: 400 15px/1.65 var(--sans); }
 .detail .transcript { margin-top: 0; max-height: none; border: 0; background: none; padding: 0; }
+
+/* ---- resumo e conversa na reunião aberta ---- */
+.summary-card { padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--acc); border-radius: 4px 14px 14px 4px; background: var(--card); }
+.summary-card .label { margin-bottom: 6px; font: 500 10.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+.summary-card .md p { margin: 0; font-size: 15px; }
+.chat { display: flex; flex-direction: column; gap: 12px; }
+.chat-log { display: flex; flex-direction: column; gap: 10px; min-height: 180px; max-height: 52vh; overflow-y: auto; padding: 2px 2px 6px; }
+.msg { max-width: 88%; padding: 9px 13px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.msg p { margin: 0; }
+.msg--user { align-self: flex-end; background: var(--mark-soft); border-color: var(--mark); }
+.msg--ai { align-self: flex-start; }
+.msg--ai .md > :first-child { margin-top: 0; }
+.msg--ai .md > :last-child { margin-bottom: 0; }
+.msg--err { border-color: var(--danger); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.msg .busy { margin: 0; color: var(--mute); }
+.chat-empty { display: flex; flex-direction: column; gap: 12px; padding: 8px 0; color: var(--mute); }
+.chat-empty p { margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+button.chip-btn { padding: 7px 14px; color: var(--ink); }
+button.chip-btn:hover { border-color: var(--acc); }
+.chat-form { display: flex; gap: 8px; align-items: flex-end; }
+.chat-form textarea { flex: 1; min-height: 42px; max-height: 140px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--field); color: var(--ink); font: 14px/1.4 var(--sans); resize: none; }
+.chat-form textarea:focus-visible { outline: none; border-color: var(--acc); }
+.chat-form button { height: 42px; padding: 0 18px; font-weight: 600; }
+.chat-form button:disabled { opacity: 0.5; cursor: default; }

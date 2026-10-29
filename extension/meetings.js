@@ -542,8 +542,49 @@ async function liveStatus({ error, lag }) {
 
 // ---- mensagens ---------------------------------------------------------------------
 
+// Pergunta sobre uma reunião. A conversa fica guardada na própria reunião (m.chat), então ao
+// reabrir ela continua lá. O servidor recebe a ata, as notas, a transcrição e as últimas trocas.
+async function askMeeting({ id, question }) {
+  const m = await getMeeting(id);
+  if (!m) return fail("gone", "Reunião apagada.");
+  const text = String(question || "").trim();
+  if (!text) return fail("empty_text", "Escreva a pergunta.");
+  const settings = await getSettings();
+  const res = await withKeepAlive(() =>
+    call(
+      "/ask",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: text,
+          segments: m.segments || [],
+          minutes: m.minutes || "",
+          notes: m.notes || "",
+          history: (m.chat || []).slice(-12),
+          language: settings.language,
+          model: settings.ollamaModel,
+        }),
+      },
+      3 * 60_000,
+    ),
+  );
+  if (!res.ok) return res;
+  const at = Date.now();
+  // Relê: a reunião pode ter mudado enquanto o modelo respondia (ata refeita, outra pergunta).
+  const current = await getMeeting(id);
+  if (current) {
+    await patchMeeting(id, {
+      chat: [...(current.chat || []), { role: "user", content: text, at }, { role: "assistant", content: res.data.answer, at }],
+    });
+  }
+  return res;
+}
+
 function meetingHandle(msg) {
   switch (msg.type) {
+    case "meeting-ask":
+      return askMeeting(msg);
     case "rec-state":
       return (async () => {
         let rec = await getRec();

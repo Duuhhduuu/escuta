@@ -215,12 +215,18 @@ Marque **Gravar sozinho as chamadas do Google Meet** no popup. Daí em diante, q
   <img src="docs/img/painel-ata.png" alt="Painel no fim da reunião: a ata está pronta, com duração e número de falas" width="300">
 </p>
 
-### Rever uma reunião
+### Rever uma reunião e conversar com ela
 
-Em **Pesquisar transcrições**, cada reunião é **uma linha só**: o dia, a hora, o assunto (o título que a ata ganhou) e a duração. Clique na linha para abrir a reunião, com a ata e a transcrição em duas abas, as suas notas e as ações (copiar, baixar em `.md`, refazer a ata com outro modelo, apagar). O botão **← Todas as reuniões** volta para a lista.
+Em **Pesquisar transcrições**, cada reunião é **uma linha só**: o dia, a hora, o assunto (o título que a ata ganhou) e a duração. Clique na linha para abrir a reunião:
+
+- No topo, o **resumo** da ata e as ações (copiar, baixar em `.md`, refazer a ata com outro modelo, apagar).
+- Na aba **Perguntar**, um chat para tirar dúvidas: *O que eu preciso fazer e até quando? Quais foram as decisões? Alguém discordou?* As respostas saem só do que foi dito (ata, suas notas e transcrição) e trazem o horário da fala. A conversa fica salva na reunião e continua quando você volta.
+- As abas **Ata** e **Transcrição** têm o texto completo. O botão **← Todas as reuniões** volta para a lista.
+
+O chat usa o mesmo modelo dos resumos (Ollama ou Gemini). Com o Gemini, o texto da reunião e a pergunta vão para o Google; com o Ollama, nada sai do seu computador.
 
 <p align="center">
-  <img src="docs/img/reunioes-lista.png" alt="Lista de reuniões, uma linha por reunião com dia, assunto e duração" width="46%">&nbsp;&nbsp;<img src="docs/img/reunioes-detalhe.png" alt="Reunião aberta, com a ata e a aba de transcrição" width="46%">
+  <img src="docs/img/reunioes-lista.png" alt="Lista de reuniões, uma linha por reunião com dia, assunto e duração" width="46%">&nbsp;&nbsp;<img src="docs/img/reunioes-detalhe.png" alt="Reunião aberta, com o resumo e o chat para perguntar sobre ela" width="46%">
 </p>
 
 ### Como ele sabe quem falou

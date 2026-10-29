@@ -136,6 +136,65 @@ def format_transcript(segments):
     )
 
 
+# ---- perguntas sobre uma reunião já gravada ----------------------------------------------
+
+ASK_MAX_QUESTION = 2000
+ASK_MAX_HISTORY = 12  # trocas anteriores que entram no pedido; o resto a pessoa já leu
+ASK_MAX_TURN = 4000
+
+
+def ask_prompt(language="pt"):
+    idioma = LANGUAGES.get(language, LANGUAGES["pt"])
+    return (
+        "Você ajuda a pessoa a entender uma reunião que ela gravou. "
+        f"Responda em {idioma}, de forma direta e curta.\n\n"
+        "Regras:\n"
+        "1. Use só o que está na ata, nas anotações e na transcrição. Se a resposta não estiver lá, "
+        "diga que a reunião não trata disso. Não invente.\n"
+        "2. Ao citar uma fala, indique o horário entre colchetes, como [12:40].\n"
+        "3. Na transcrição, 'Você' é quem gravou e 'Participantes' são os outros.\n"
+        "4. Listas só quando a pergunta pedir (decisões, tarefas, prazos). Sem introdução do tipo \"Claro!\"."
+    )
+
+
+def clip_middle(text, limit):
+    """Se passar do limite, fica o começo e o fim, que é onde a reunião abre e fecha os assuntos."""
+    if limit <= 0 or len(text) <= limit:
+        return text if limit > 0 else ""
+    half = limit // 2
+    return f"{text[:half]}\n[... trecho do meio omitido por ser longo ...]\n{text[-half:]}"
+
+
+def clean_history(history):
+    """Só pares válidos {role, content}, os mais recentes e com tamanho contido."""
+    turns = []
+    for item in history or []:
+        if not isinstance(item, dict) or item.get("role") not in ("user", "assistant"):
+            continue
+        content = str(item.get("content") or "").strip()[:ASK_MAX_TURN]
+        if content:
+            turns.append({"role": item["role"], "content": content})
+    return turns[-ASK_MAX_HISTORY:]
+
+
+def ask_message(question, transcript, minutes="", notes="", history=None, limit=20_000):
+    """O pedido que vai ao modelo: contexto da reunião, conversa até aqui e a pergunta."""
+    question = str(question or "").strip()[:ASK_MAX_QUESTION]
+    parts = []
+    if minutes:
+        parts.append(f"Ata da reunião:\n{minutes.strip()}")
+    if notes:
+        parts.append(f"Anotações de quem gravou:\n{notes.strip()}")
+    used = sum(len(p) for p in parts)
+    parts.append(f"Transcrição:\n{clip_middle(transcript, max(limit - used, 2000))}")
+    turns = clean_history(history)
+    if turns:
+        said = "\n".join(f"{'Pessoa' if t['role'] == 'user' else 'Assistente'}: {t['content']}" for t in turns)
+        parts.append(f"Conversa até aqui:\n{said}")
+    parts.append(f"Pergunta da pessoa:\n{question}")
+    return "\n\n".join(parts)
+
+
 # O Whisper, diante de um trecho quase mudo, "escuta" frases de fim de vídeo. Numa janela
 # de poucos segundos isso acontece bastante; na gravação inteira o VAD já segura a maioria.
 HALLUCINATIONS = ("Legendas pela comunidade", "Amara.org", "Obrigado por assistir", "Inscreva-se no canal")
