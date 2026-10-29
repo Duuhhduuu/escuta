@@ -35,6 +35,31 @@ O **Escuta** é uma extensão para o navegador, com um pequeno servidor que roda
 
 A transcrição acontece na sua máquina, com o [Whisper](https://github.com/SYSTRAN/faster-whisper). **O áudio nunca sai do seu computador.** Só o texto já transcrito vai para o Gemini, e só se você escolher usá-lo para os resumos (veja [Privacidade](#privacidade)).
 
+## Veja como fica
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/img/cartao-whatsapp.png" alt="Transcrição e resumo dentro do WhatsApp Web" width="100%"><br>
+      <sub><b>No WhatsApp Web:</b> botão Transcrever em cada áudio, depois o texto e o resumo.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/img/painel-gravando.png" alt="Painel de transcrição ao vivo ao lado da reunião" width="60%"><br>
+      <sub><b>Na reunião:</b> painel ao vivo com quem falou, notas e o botão de parar.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/img/popup-escuro.png" alt="Popup da extensão no tema escuro" width="42%">&nbsp;<img src="docs/img/popup-claro.png" alt="Popup da extensão no tema claro" width="42%"><br>
+      <sub><b>O ícone da extensão:</b> gravar a aba, o estado dos motores e os ajustes. Tema claro e escuro.</sub>
+    </td>
+    <td align="center">
+      <img src="docs/img/historico.png" alt="Página de pesquisa com transcrições e a ata de uma reunião" width="100%"><br>
+      <sub><b>Tudo pesquisável:</b> mensagens de voz e atas de reunião num só lugar.</sub>
+    </td>
+  </tr>
+</table>
+
 ## Como funciona
 
 ```
@@ -74,6 +99,10 @@ irm https://raw.githubusercontent.com/Duuhhduuu/escuta/main/install.ps1 | iex
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Duuhhduuu/escuta/main/install.sh | bash
 ```
+
+<p align="center">
+  <img src="docs/img/instalador.png" alt="Instalador no terminal: seis etapas com progresso e a mensagem Tudo pronto" width="720">
+</p>
 
 O instalador coloca tudo em `~/escuta` (no Windows, `C:\Users\você\escuta`). Dá para mudar com a variável `ESCUTA_PASTA`. Pode rodar de novo quando quiser: ele atualiza os arquivos e não mexe no seu `.env`.
 
@@ -154,26 +183,47 @@ Clique no ícone do Escuta para ver:
 
 Além do WhatsApp, o Escuta grava reuniões online (Google Meet, Teams, Zoom no navegador…) e escreve a ata. Funciona no **Chrome e no Brave**.
 
-### Passo a passo
+### Gravar com um clique
 
 1. Abra a aba da reunião e clique no ícone do Escuta **nessa aba**.
-2. Em **Reunião**, escolha o **modelo da ata** e clique em **Gravar esta aba**. Na primeira vez, o navegador pede permissão de microfone numa aba à parte: é só permitir. A gravação começa sozinha e você volta para a reunião.
+2. Em **Reunião**, escolha o **modelo da ata** e clique em **Gravar esta aba**. A gravação começa **na hora**, sem pedir nada.
 3. Ao terminar, clique em **Parar e gerar a ata**.
 
-O ícone mostra **REC** enquanto grava, **…** enquanto processa e **✓** quando a ata está pronta. Ela aparece em **Pesquisar transcrições**, com a ata formatada, a transcrição de quem falou o quê (**Você** e **Participantes**) e botões para copiar, baixar em `.md` e refazer a ata com outro modelo.
+O ícone mostra **REC** enquanto grava, **II** quando está pausado, **…** enquanto processa e **✓** quando a ata está pronta. Ela aparece em **Pesquisar transcrições**, com a ata formatada, a transcrição de quem falou o quê (**Você** e **Participantes**) e botões para copiar, baixar em `.md` e refazer a ata com outro modelo.
+
+> [!NOTE]
+> **O microfone é opcional.** Sem permissão, o Escuta grava o áudio da aba, que já tem todos os participantes. Para gravar também a **sua** voz, clique em *Também gravar a minha voz* no popup e permita o microfone, uma vez só.
 
 > [!TIP]
 > **Use fones de ouvido.** Sem fone, o microfone também capta o alto-falante e a conversa se repete. O servidor descarta o que for eco, mas com fone fica mais limpo.
 
+### Gravar sozinho no Google Meet (experimental)
+
+Marque **Gravar sozinho as chamadas do Google Meet** no popup. Daí em diante, quando você entra numa chamada o Escuta começa a gravar e abre o painel ao vivo, **sem nenhum clique**. Quando você sai, a gravação para e a ata é gerada.
+
+- Funciona lendo o áudio que o próprio Meet usa, então **não pede permissão de microfone** e não depende de clicar no ícone.
+- Vem **desligado** por padrão. Se ligar, **avise os participantes** de que a reunião está sendo gravada.
+- Se o Meet já estava aberto quando você instalou ou atualizou, **recarregue a aba** uma vez.
+- Gravou sem querer? Abra o popup e use **Descartar esta gravação**: o áudio é apagado e nenhuma ata é gerada.
+
+### Pausar, retomar e desfazer
+
+- **Pausar:** o botão ao lado de *Copiar*, no painel (ou **Pausar** no popup), segura a gravação e o texto ao vivo. O tempo parado não entra no arquivo e o som da reunião continua normal. Clique de novo para retomar.
+- **Desfazer ao parar:** *Parar e gerar a ata* dá **8 segundos** para voltar atrás. O botão vira **Desfazer** com a contagem, e a gravação continua enquanto isso.
+
+<p align="center">
+  <img src="docs/img/painel-ata.png" alt="Painel no fim da reunião: a ata está pronta, com duração e número de falas" width="300">
+</p>
+
 ### Como ele sabe quem falou
 
-A extensão grava o áudio da aba e o seu microfone **em canais separados** do mesmo arquivo. O servidor transcreve cada canal sozinho e junta tudo por horário. Assim ele sabe o que foi você e o que foram os outros, sem tentar adivinhar vozes.
+A extensão grava o áudio da aba e o seu microfone **em canais separados** do mesmo arquivo. O servidor transcreve cada canal sozinho e junta tudo por horário. Assim ele sabe o que foi você e o que foram os outros, sem tentar adivinhar vozes. Sem o microfone liberado, só a pista dos participantes é gravada.
 
 ### Painel ao vivo
 
 Ao começar a gravar, um painel aparece ao lado da reunião, com a transcrição de 1 a 2 segundos depois de cada frase, quem falou e o horário. O áudio é cortado nas pausas da fala, então as frases saem inteiras. É uma prévia: a transcrição final, mais precisa, vem ao parar.
 
-- No cabeçalho do painel: **minimizar** (vira uma bolinha que traz o painel de volta), **abrir em janela separada** e **fechar** (a gravação continua).
+- No cabeçalho do painel: **minimizar** (vira uma bolinha com o símbolo do Escuta e um ponto vermelho piscando, que traz o painel de volta), **abrir em janela separada** e **fechar** (a gravação continua).
 - **Notas:** a caixa embaixo é sua. Anote nomes, prazos e o que importa. Elas entram na ata: a IA as usa para acertar a grafia dos nomes e destacar o que você marcou.
 - Se a página não aceitar o painel, ele abre numa janela ao lado e o popup mostra o motivo. **Mostrar a transcrição ao vivo** no popup liga e desliga o painel, e **Abrir a transcrição ao vivo** reabre se você o fechou.
 
@@ -336,5 +386,7 @@ escuta/
 Logo, símbolo, banner e ícones ficam em `brand/`. Cores: âmbar `#FFC53D`, tinta `#0E1424` e sinal `#3347FF`. Fontes: Bricolage Grotesque, Instrument Sans e JetBrains Mono, empacotadas em `extension/fonts`.
 
 ## Créditos
+
+As imagens de `docs/img` são capturas das próprias telas da extensão, com dados de exemplo.
 
 Transcrição com [faster-whisper](https://github.com/SYSTRAN/faster-whisper) e, no Mac com chip Apple, [mlx-whisper](https://github.com/ml-explore/mlx-examples). Modelos de ata adaptados do [Meetily](https://github.com/Zackriya-Solutions/meetily).
