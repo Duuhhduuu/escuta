@@ -4,7 +4,7 @@
 (() => {
   const CHUNK_MS = 10_000;
   const MIC_WAIT_MS = 1_500; // um documento offscreen não mostra o pedido de permissão: sem resposta, segue sem microfone
-  const BITRATE = 64_000;
+  const BITRATE = 96_000; // dois canais: a voz perde menos detalhe, que o Whisper usa para acertar
 
   let job = null;
 

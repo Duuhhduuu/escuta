@@ -7,6 +7,7 @@ Os modelos de ata ficam em templates/ (um .json por modelo).
 import difflib
 import json
 import os
+import re
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
 
@@ -230,12 +231,44 @@ def ask_message(question, transcript, minutes="", notes="", history=None, limit=
 HALLUCINATIONS = ("Legendas pela comunidade", "Amara.org", "Obrigado por assistir", "Inscreva-se no canal")
 
 
+# Murmúrios que o Whisper escreve onde só há respiração ou "uhum" ao fundo. Sozinhos não dizem nada e,
+# quando voltam como dica da janela seguinte, puxam mais deles: a janela vira uma fila de "Hum-hum".
+FILLERS = {"hum", "humhum", "hmm", "hm", "uhum", "uhm", "ahn", "aham", "mhm", "mm", "mmm"}
+
+
+def _is_filler(text):
+    words = _norm(text).replace("-", " ").split()
+    return bool(words) and all(w.replace(" ", "") in FILLERS for w in words)
+
+
+def prompt_tail(text, limit=220):
+    """O fim da fala anterior, que serve de dica ao Whisper, sem murmúrios nem frases repetidas em fila.
+    Dica suja realimenta o erro: um "Hum-hum." no prompt gera outro na janela seguinte."""
+    sentences = []
+    for sentence in re.split(r"(?<=[.!?…])\s+", (text or "").strip()):
+        if not sentence or _is_filler(sentence):
+            continue
+        if sentences and _norm(sentences[-1]) == _norm(sentence):
+            continue
+        sentences.append(sentence)
+    return " ".join(sentences)[-limit:].strip()
+
+
+def speech_gain(rms, peak, target=0.08, cap=12.0):
+    """Ganho para a voz baixa chegar ao Whisper num volume em que ele acerta mais.
+    Não amplifica ruído de fundo (rms muito baixo), nem passa do limite e nem estoura o pico."""
+    if rms < 0.002 or peak <= 0 or rms >= target:
+        return 1.0
+    gain = min(cap, target / rms, 0.95 / peak)
+    return gain if gain >= 1.2 else 1.0
+
+
 def clean_live(segments):
-    """Trechos de uma janela ao vivo que valem mostrar: tira vazio, silêncio com palpite e frase de fim de vídeo."""
+    """Trechos de uma janela ao vivo que valem mostrar: tira vazio, murmúrio, silêncio com palpite e frase de fim de vídeo."""
     keep = []
     for seg in segments:
         text = seg["text"].strip()
-        if not text:
+        if not text or _is_filler(text):
             continue
         if seg.get("no_speech", 0) > 0.6 and seg.get("logprob", 0) < -1.0:
             continue

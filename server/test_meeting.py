@@ -222,5 +222,42 @@ class Goal(unittest.TestCase):
         self.assertIn("alinhamento", found)
 
 
+class Accuracy(unittest.TestCase):
+    """Defeitos vistos no log de uma chamada real: murmúrios realimentando o prompt e voz baixa."""
+
+    def test_prompt_drops_fillers_and_repeats(self):
+        dirty = "Vai, tem que ver o contrato aí, né? Hum-hum. Hum-hum. Hum-hum. Tchau. Tchau. Você me passa aí."
+        out = meeting.prompt_tail(dirty)
+        self.assertNotIn("Hum", out)
+        self.assertEqual(out.count("Tchau"), 1)
+        self.assertIn("Você me passa aí", out)
+
+    def test_prompt_is_limited_and_tolerates_empty(self):
+        self.assertEqual(meeting.prompt_tail(""), "")
+        self.assertEqual(meeting.prompt_tail(None), "")
+        self.assertLessEqual(len(meeting.prompt_tail("Frase longa de teste. " * 40)), 220)
+
+    def test_filler_only_segments_are_not_shown(self):
+        out = meeting.clean_live(
+            [
+                {"start": 0, "end": 1, "text": " Hum-hum. ", "no_speech": 0.1, "logprob": -0.2},
+                {"start": 1, "end": 2, "text": "Uhum", "no_speech": 0.1, "logprob": -0.2},
+                {"start": 2, "end": 4, "text": "Hum, deixa eu ver o contrato.", "no_speech": 0.1, "logprob": -0.2},
+            ]
+        )
+        self.assertEqual([s["text"] for s in out], ["Hum, deixa eu ver o contrato."])
+
+    def test_quiet_voice_is_boosted_loud_voice_is_not(self):
+        self.assertGreater(meeting.speech_gain(0.01, 0.2), 4)
+        self.assertEqual(meeting.speech_gain(0.1, 0.5), 1.0)  # já está num bom volume
+        self.assertEqual(meeting.speech_gain(0.0005, 0.01), 1.0)  # ruído de fundo: não amplifica
+        self.assertEqual(meeting.speech_gain(0.0, 0.0), 1.0)
+
+    def test_boost_never_clips_and_is_capped(self):
+        gain = meeting.speech_gain(0.01, 0.6)
+        self.assertLessEqual(0.6 * gain, 0.95 + 1e-9)
+        self.assertLessEqual(meeting.speech_gain(0.003, 0.004), 12.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -415,6 +415,16 @@ def split_channels(path):
         return both[0::2], both[1::2]
 
 
+def boost(samples):
+    """Sobe o volume da voz baixa (quem fala longe do microfone, ou a voz que chega pela chamada)."""
+    import numpy as np
+
+    if not len(samples):
+        return samples
+    gain = meeting.speech_gain(float(np.sqrt(np.mean(np.square(samples)))), float(np.max(np.abs(samples))))
+    return samples * np.float32(gain) if gain != 1.0 else samples
+
+
 def transcribe_live(pcm, model, language, prompt):
     """Uma janela curta (PCM de 16 bits, 16 kHz, mono) vira trechos com horário relativo à janela.
     É o que alimenta a transcrição ao vivo: rápido e sem a conferência que a gravação inteira recebe."""
@@ -428,7 +438,8 @@ def transcribe_live(pcm, model, language, prompt):
         return []
     model = canonical_model(model)
     language = None if language == "auto" else language
-    prompt = (prompt or "").strip()[-220:] or None  # o fim da fala anterior: ajuda nomes e a pontuação a continuar
+    samples = boost(samples)
+    prompt = meeting.prompt_tail(prompt) or None  # o fim da fala anterior (sem murmúrios): ajuda nomes e a pontuação a continuar
 
     def job():
         global _cuda_broken
@@ -441,6 +452,7 @@ def transcribe_live(pcm, model, language, prompt):
                 language=language,
                 condition_on_previous_text=False,
                 initial_prompt=prompt,
+                temperature=0.0,
             )
             return [
                 {"start": s["start"], "end": s["end"], "text": s["text"], "no_speech": s.get("no_speech_prob", 0), "logprob": s.get("avg_logprob", 0)}
@@ -454,8 +466,17 @@ def transcribe_live(pcm, model, language, prompt):
         def run(device, compute):
             loaded = load_faster(name, device, compute)
             whisper = loaded[0].model if loaded[1] else loaded[0]  # janela curta: o modo sequencial, sem lote
+            # Prévia: sem busca em feixe nem repetição com temperatura maior, que é o que atrasa. A gravação
+            # inteira, que é a que vale, continua com o decodificador completo.
             segments, _ = whisper.transcribe(
-                samples, language=language, vad_filter=True, condition_on_previous_text=False, initial_prompt=prompt
+                samples,
+                language=language,
+                beam_size=1,
+                temperature=0.0,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 500, "speech_pad_ms": 300},
+                condition_on_previous_text=False,
+                initial_prompt=prompt,
             )
             return [
                 {"start": s.start, "end": s.end, "text": s.text, "no_speech": s.no_speech_prob, "logprob": s.avg_logprob}
@@ -514,7 +535,7 @@ def transcribe_meeting(audio, model, language, emit):
             continue
         emit({"stage": who, "progress": n / 2})
         parts = []
-        whisper_worker.submit(run, samples, model, language, None, parts).result()
+        whisper_worker.submit(run, boost(samples), model, language, None, parts).result()
         found[who] = parts
     emit({"stage": "merge", "progress": 1})
 
