@@ -156,5 +156,41 @@ class Chunking(unittest.TestCase):
         self.assertEqual([len(c) for c in chunks], [100, 100, 50])
 
 
+class Ask(unittest.TestCase):
+    def test_message_has_context_history_and_question(self):
+        msg = meeting.ask_message(
+            "Quem cobra o time?",
+            "[01:00] Você: eu cobro o time",
+            minutes="# Reunião\n\n## Decisões\n- X",
+            notes="Prazo é quinta",
+            history=[{"role": "user", "content": "Oi"}, {"role": "assistant", "content": "Olá"}],
+        )
+        for piece in ("Ata da reunião", "Anotações de quem gravou", "Prazo é quinta", "[01:00] Você", "Pessoa: Oi", "Assistente: Olá", "Quem cobra o time?"):
+            self.assertIn(piece, msg)
+        self.assertLess(msg.index("Transcrição"), msg.index("Conversa até aqui"))
+        self.assertTrue(msg.rstrip().endswith("Quem cobra o time?"))
+
+    def test_long_transcript_keeps_start_and_end(self):
+        text = "COMECO " + "x" * 50_000 + " FIM"
+        clipped = meeting.clip_middle(text, 1000)
+        self.assertLessEqual(len(clipped), 1100)
+        self.assertTrue(clipped.startswith("COMECO"))
+        self.assertTrue(clipped.endswith("FIM"))
+        self.assertIn("omitido", clipped)
+        self.assertEqual(meeting.clip_middle("curto", 1000), "curto")
+
+    def test_history_is_cleaned_and_capped(self):
+        history = [{"role": "user", "content": f"p{i}"} for i in range(30)] + [{"role": "x", "content": "ruim"}, "lixo", {"role": "user", "content": "  "}]
+        turns = meeting.clean_history(history)
+        self.assertEqual(len(turns), meeting.ASK_MAX_HISTORY)
+        self.assertEqual(turns[-1]["content"], "p29")
+        self.assertNotIn("ruim", [t["content"] for t in turns])
+
+    def test_prompt_follows_language_and_forbids_inventing(self):
+        self.assertIn("português do Brasil", meeting.ask_prompt("pt"))
+        self.assertIn("inglês", meeting.ask_prompt("en"))
+        self.assertIn("Não invente", meeting.ask_prompt())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
