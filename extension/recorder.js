@@ -20,8 +20,11 @@
     maxWindowMs: 8000, // ninguém espera mais que isso para ver texto
     minVoiceMs: 500, // menos fala que isso na janela é tosse ou tecla: descarta
     dropSilenceMs: 1500,
-    maxQueue: 20, // servidor mais lento que a fala: descarta as mais velhas, a gravação final pega tudo
+    maxQueue: 60, // servidor mais lento que a fala: só então descarta as mais velhas
     timeoutMs: 60_000,
+    retries: 3, // uma janela que falha tenta de novo antes de ser dada como perdida
+    retryMs: 1500,
+    drainMs: 25_000, // ao parar, espera a fila esvaziar até aqui
   };
 
   // 48 kHz -> 16 kHz por média de 3 amostras (basta para voz) e PCM de 16 bits.
@@ -56,7 +59,12 @@
       reset();
     }
 
-    return (block) => {
+    // Ao parar: a frase que estava no meio da janela também vai, em vez de ser descartada.
+    const finish = () => {
+      if (frames.length && voiceMs >= LIVE.minVoiceMs) flush();
+    };
+
+    const push = (block) => {
       const { pcm, rms } = downsample(block);
       if (!frames.length) startMs = clock;
       clock += 100;
@@ -80,6 +88,8 @@
         flush();
       }
     };
+    push.finish = finish;
+    return push;
   }
 
   async function startLive(ctx, nodes, cfg) {
@@ -108,19 +118,30 @@
       }
     }
 
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
     async function pump() {
       if (busy) return;
       busy = true;
       try {
         while (queue.length && !abort.signal.aborted) {
+          const next = queue.shift();
           try {
-            await send(queue.shift());
+            await send(next);
             if (failing) tell({ type: "live-status", error: null });
             failing = false;
           } catch (err) {
             if (abort.signal.aborted) return;
-            // Sem servidor, a janela se perde, mas a gravação segue e a final recupera tudo.
-            if (!failing) tell({ type: "live-status", error: String(err.message || err) });
+            next.tries = (next.tries || 0) + 1;
+            if (next.tries <= LIVE.retries) {
+              // Servidor ocupado ou reiniciando: a janela volta para a frente da fila em vez de se perder.
+              queue.unshift(next);
+              await wait(LIVE.retryMs * next.tries);
+              continue;
+            }
+            // Esgotou as tentativas: a janela se perde. A reunião fica sabendo que o texto ao vivo tem
+            // buraco e, no fim, transcreve o áudio inteiro em vez de confiar nele.
+            tell({ type: "live-status", error: String(err.message || err), lost: true });
             failing = true;
           }
         }
@@ -142,10 +163,12 @@
     sink.gain.value = 0;
     sink.connect(ctx.destination);
     const taps = [];
+    const pushes = [];
     for (const [who, node] of Object.entries(nodes)) {
       if (!node) continue;
       const tap = new AudioWorkletNode(ctx, "pcm-tap");
       const push = liveChannel(who, enqueue);
+      pushes.push(push);
       tap.port.onmessage = (event) => {
         if (!job?.paused) push(event.data); // pausado: o texto ao vivo também espera
       };
@@ -154,11 +177,18 @@
       taps.push(tap);
     }
 
-    return () => {
+    const stopLive = () => {
       abort.abort();
       queue.length = 0;
       for (const tap of taps) tap.disconnect();
     };
+    // Termina o texto ao vivo: fecha a frase pendente de cada canal e espera a fila esvaziar.
+    stopLive.drain = async () => {
+      for (const push of pushes) push.finish();
+      const until = Date.now() + LIVE.drainMs;
+      while ((queue.length || busy) && Date.now() < until) await wait(200);
+    };
+    return stopLive;
   }
 
   const withTimeout = (promise, ms) =>
@@ -288,12 +318,14 @@
     if (!job) return { ok: false, message: "Nenhuma gravação em andamento." };
     const state = job;
     job = null;
-    state.stopLive?.();
     await new Promise((resolve) => {
       if (state.recorder.state === "inactive") return resolve();
       state.recorder.onstop = resolve;
       state.recorder.stop();
     });
+    // O áudio já está salvo. Agora o texto ao vivo termina o que faltava, para a ata sair completa.
+    await state.stopLive?.drain?.().catch(() => {});
+    state.stopLive?.();
     await state.writes; // o último pedaço chega antes do evento stop, mas a gravação no disco demora um instante
     for (const stream of state.streams) for (const track of stream.getTracks()) track.stop();
     await state.ctx.close().catch(() => {});
