@@ -15,9 +15,9 @@
   const LIVE = {
     voiceRms: 0.01, // acima disso o bloco de 100 ms conta como fala (no seu microfone)
     voiceRmsOthers: 0.004, // a voz dos outros chega mais baixa, vinda da chamada
-    minWindowMs: 3000, // janela mais curta que isso espera mais fala, a não ser que haja pausa longa
-    pauseMs: 600, // pausa que fecha uma frase
-    maxWindowMs: 12_000, // ninguém espera mais que isso para ver texto
+    minWindowMs: 1800, // janela mais curta que isso espera mais fala, a não ser que haja pausa longa
+    pauseMs: 450, // pausa que fecha uma frase
+    maxWindowMs: 8000, // ninguém espera mais que isso para ver texto
     minVoiceMs: 500, // menos fala que isso na janela é tosse ou tecla: descarta
     dropSilenceMs: 1500,
     maxQueue: 20, // servidor mais lento que a fala: descarta as mais velhas, a gravação final pega tudo
