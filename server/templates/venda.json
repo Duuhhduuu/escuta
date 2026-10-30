@@ -1,0 +1,36 @@
+{
+  "name": "Reunião de vendas",
+  "description": "Interesse do cliente, objeções, o que foi prometido e o próximo passo da venda.",
+  "sections": [
+    {
+      "title": "Quem é o cliente e em que momento está",
+      "instruction": "O perfil do cliente, o que ele já usa ou compra hoje e o que o fez procurar uma solução",
+      "format": "paragraph"
+    },
+    {
+      "title": "Dores e necessidades",
+      "instruction": "Os problemas e desejos que o cliente descreveu, nas palavras dele sempre que possível",
+      "format": "list"
+    },
+    {
+      "title": "Objeções e como foram tratadas",
+      "instruction": "Cada objeção ou dúvida levantada (preço, prazo, concorrente, confiança) e como foi respondida. Diga quando a objeção ficou sem resposta",
+      "format": "list"
+    },
+    {
+      "title": "Sinais de interesse",
+      "instruction": "Falas do cliente que indicam vontade de avançar ou de desistir, com o horário",
+      "format": "list"
+    },
+    {
+      "title": "O que foi prometido",
+      "instruction": "Preços, condições, prazos e entregas que foram ditos ao cliente",
+      "format": "list"
+    },
+    {
+      "title": "Próximo passo combinado",
+      "instruction": "O que acontece depois, quem faz e a data. Se nenhum próximo passo foi marcado, diga isso claramente",
+      "format": "paragraph"
+    }
+  ]
+}

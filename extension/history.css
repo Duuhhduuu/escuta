@@ -246,3 +246,21 @@ button.chip-btn:hover { border-color: var(--acc); }
 .chat-form textarea:focus-visible { outline: none; border-color: var(--acc); }
 .chat-form button { height: 42px; padding: 0 18px; font-weight: 600; }
 .chat-form button:disabled { opacity: 0.5; cursor: default; }
+
+/* ---- objetivo da reunião ---- */
+.goal-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.goal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.goal-head .label { font: 500 10.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+.goal-input { width: 100%; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--ink); font: 600 15px/1.4 var(--sans); }
+.goal-input:hover { border-color: var(--line); }
+.goal-input:focus-visible { outline: none; border-color: var(--acc); background: var(--field); }
+.goal-card .md { font-size: 14px; }
+.goal-card .md :first-child { margin-top: 0; }
+.chip--ok { background: var(--ok); color: #fff; }
+.chip--mid { background: var(--acc); color: var(--acc-ink); }
+.chip--bad { border: 1px solid var(--danger); color: var(--danger); }
+
+.chip--live { color: var(--danger); border-color: currentColor; }
+.chip--live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; animation: blink 1.2s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .chip--live::before { animation: none; } }

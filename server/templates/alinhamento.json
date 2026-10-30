@@ -1,0 +1,31 @@
+{
+  "name": "Alinhamento",
+  "description": "Reunião para deixar todos na mesma página: pauta, acordos, divergências e responsáveis.",
+  "sections": [
+    {
+      "title": "Pauta tratada",
+      "instruction": "Os assuntos discutidos, na ordem, cada um com uma linha",
+      "format": "list"
+    },
+    {
+      "title": "No que todos concordam",
+      "instruction": "Os pontos em que houve acordo explícito",
+      "format": "list"
+    },
+    {
+      "title": "Onde há divergência",
+      "instruction": "Os pontos em que as pessoas pensam diferente, com a posição de cada lado, sem tomar partido",
+      "format": "list"
+    },
+    {
+      "title": "Decisões",
+      "instruction": "O que foi decidido ao final e por quem",
+      "format": "list"
+    },
+    {
+      "title": "Responsáveis e prazos",
+      "instruction": "Uma linha por tarefa: quem, o quê e até quando, com o horário da fala entre colchetes",
+      "format": "list"
+    }
+  ]
+}

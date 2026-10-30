@@ -28,7 +28,7 @@
     },
     {
       "matches": ["https://meet.google.com/*"],
-      "js": ["meet-bridge.js"],
+      "js": ["meet-bridge.js", "meet-speakers.js"],
       "run_at": "document_start"
     },
     {

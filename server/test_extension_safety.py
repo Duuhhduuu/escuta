@@ -15,7 +15,7 @@ import unittest
 EXT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "extension")
 
 # Scripts que rodam DENTRO da página dos outros (content scripts e injetados).
-INJECTED = ["dock.js", "content.js", "page-hook.js"]
+INJECTED = ["dock.js", "content.js", "page-hook.js", "meet-hook.js", "meet-speakers.js"]
 
 # Sinks que o Trusted Types barra ou que a CSP de estilo da página recusa.
 UNSAFE = [

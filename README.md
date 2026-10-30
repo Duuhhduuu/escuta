@@ -206,6 +206,18 @@ Marque **Gravar sozinho as chamadas do Google Meet** no popup. Daí em diante, q
 - Se o Meet já estava aberto quando você instalou ou atualizou, **recarregue a aba** uma vez.
 - Gravou sem querer? Abra o popup e use **Descartar esta gravação**: o áudio é apagado e nenhuma ata é gerada.
 
+### Objetivo da reunião
+
+Antes de gravar (campo no popup) ou **durante a reunião** (campo no painel ao vivo, pensado para quando a gravação começa sozinha no Meet), escreva o **objetivo** em uma linha: *fechar o orçamento com a Marina*, *alinhar o prazo da integração*, *mostrar o produto e marcar uma demo*.
+
+Quando a ata é gerada, ela abre com a seção **Objetivo da reunião**:
+
+- **Alcançado, Em parte ou Não alcançado**, julgado só pelo que foi dito, com os horários que comprovam.
+- **O que faltou** para chegar lá.
+- **Como melhorar na próxima**, com 2 a 3 sugestões práticas para aquele tipo de reunião (uma venda pede coisas diferentes de um alinhamento).
+
+Na reunião aberta, o objetivo aparece no topo, com o veredito. Dá para escrever ou mudar o objetivo depois e clicar em **Refazer ata**, e no chat vale perguntar *Alcançamos o objetivo? O que eu poderia ter feito melhor?*
+
 ### Pausar, retomar e desfazer
 
 - **Pausar:** o botão ao lado de *Copiar*, no painel (ou **Pausar** no popup), segura a gravação e o texto ao vivo. O tempo parado não entra no arquivo e o som da reunião continua normal. Clique de novo para retomar.
@@ -250,7 +262,7 @@ Ao começar a gravar, um painel aparece ao lado da reunião, com a transcrição
 
 ### Modelos de ata
 
-Reunião padrão, daily, projeto, retrospectiva, cliente e aula, na pasta `server/templates/`. Para criar o seu, copie um `.json` da pasta e mude o que quiser; vale na hora, sem reiniciar.
+Reunião padrão, daily, projeto, retrospectiva, cliente, vendas, alinhamento e aula, na pasta `server/templates/`. Para criar o seu, copie um `.json` da pasta e mude o que quiser; vale na hora, sem reiniciar.
 
 ## Configuração
 

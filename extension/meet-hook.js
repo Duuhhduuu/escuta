@@ -49,6 +49,20 @@
     if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Hooked;
   }
 
+  // Uma faixa de entrada (microfone) tem a mesma origem das que o getUserMedia entregou.
+  const isLocalId = (track) => [...locals].some((l) => l.id === track.id);
+
+  // Para investigar no console da página do Meet: __escutaDebug()
+  const peak = { voce: 0, outros: 0 };
+  window.__escutaDebug = () => ({
+    gravando: Boolean(capture),
+    voce: [...locals].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
+    outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted, ativa: t.enabled })),
+    conexoes: [...pcs].map((p) => p.connectionState),
+    pico: { ...peak }, // maior volume (0 a 1) desde o início da captura: "outros" em 0 = chega mudo
+    elementos: [...document.querySelectorAll("audio, video")].map((e) => ({ tag: e.tagName, stream: e.srcObject instanceof MediaStream, faixas: e.srcObject?.getAudioTracks?.().length ?? 0 })),
+  });
+
   function addTrack(set, track) {
     set.add(track);
     track.addEventListener("ended", () => set.delete(track));
@@ -94,12 +108,24 @@
     const sources = new Map();
     const attach = (who, track) => {
       if (track.readyState !== "live" || sources.has(track)) return;
-      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      const stream = new MediaStream([track]);
+      // O Chrome só entrega o som de uma faixa remota (WebRTC) ao Web Audio se ela também estiver
+      // ligada a um elemento de mídia. Sem isso o canal dos participantes sai mudo. O elemento fica
+      // mudo: quem toca o som para você continua sendo o Meet.
+      let keep = null;
+      if (who === "outros") {
+        keep = new Audio();
+        keep.muted = true;
+        keep.srcObject = stream;
+        keep.play().catch(() => {});
+      }
+      const source = ctx.createMediaStreamSource(stream);
       source.connect(mixes[who]);
       sources.set(track, source);
       track.addEventListener("ended", () => {
         source.disconnect();
         sources.delete(track);
+        if (keep) keep.srcObject = null;
       });
     };
 
@@ -114,6 +140,10 @@
     tap.onaudioprocess = (event) => {
       const voce = toPcm(event.inputBuffer.getChannelData(0));
       const outros = toPcm(event.inputBuffer.getChannelData(1));
+      for (const [who, ch] of [["voce", 0], ["outros", 1]]) {
+        const data = event.inputBuffer.getChannelData(ch);
+        for (let i = 0; i < data.length; i++) if (Math.abs(data[i]) > peak[who]) peak[who] = Math.abs(data[i]);
+      }
       post({ type: "audio", voce, outros }, [voce, outros]);
     };
     const mute = ctx.createGain(); // o processador só roda ligado ao destino; ganho 0 não toca nada
@@ -122,16 +152,31 @@
     tap.connect(mute);
     mute.connect(ctx.destination);
 
-    capture = { ctx, attach, sources };
+    // Faixas que o Meet liga sem disparar o evento "track" (ou antes de o gancho existir) só
+    // aparecem nos receptores da conexão: confere de tempos em tempos enquanto grava.
+    const scan = () => {
+      for (const pc of pcs) for (const receiver of pc.getReceivers?.() || []) if (receiver.track?.kind === "audio" && !remotes.has(receiver.track)) addTrack(remotes, receiver.track);
+      // O que o Meet toca para você sai de elementos <audio>/<video> ligados a um MediaStream:
+      // é a voz dos outros, e vale mesmo quando a faixa não passou pelo gancho da conexão.
+      for (const el of document.querySelectorAll("audio, video")) {
+        const stream = el.srcObject;
+        if (!(stream instanceof MediaStream)) continue;
+        for (const track of stream.getAudioTracks()) {
+          if (track.readyState === "live" && !remotes.has(track) && !locals.has(track) && !isLocalId(track)) addTrack(remotes, track);
+        }
+      }
+    };
+    capture = { ctx, attach, sources, scanner: setInterval(scan, 2000) };
     for (const track of locals) attach("voce", track);
     for (const track of remotes) attach("outros", track);
-    for (const pc of pcs) for (const receiver of pc.getReceivers?.() || []) if (receiver.track?.kind === "audio") addTrack(remotes, receiver.track);
+    scan();
     ctx.resume().catch(() => {});
   }
 
   function stopCapture() {
     if (!capture) return;
-    const { ctx } = capture;
+    const { ctx, scanner } = capture;
+    clearInterval(scanner);
     capture = null;
     ctx.close().catch(() => {});
   }

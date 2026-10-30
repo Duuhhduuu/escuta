@@ -11,6 +11,7 @@ const STAGES = {
   merge: "Juntando as falas…",
   minutes: "Escrevendo a ata…",
 };
+let heard = []; // nomes lidos das legendas do Meet: [{ name, t }], t em ms
 const ECHO_SECONDS = 4;
 const ECHO_SIMILARITY = 0.7;
 
@@ -25,6 +26,7 @@ let rec = null;
 let live = { id: null, lines: [], error: null, lag: false };
 let meeting = null;
 let notes = { id: null, text: "" };
+let goal = { id: null, text: "" };
 let seen = 0; // quantas falas já estavam na tela, para saber se chegou coisa nova
 let stick = true; // acompanhando o fim; sobe para reler e a janela para de puxar
 
@@ -48,6 +50,16 @@ function withoutEcho(lines) {
   return lines
     .filter((l) => l.who !== "voce" || !others.some((o) => Math.abs(o.start - l.start) <= ECHO_SECONDS && similar(o.text, l.text)))
     .sort((a, b) => a.start - b.start || (a.who < b.who ? -1 : 1));
+}
+
+// O nome que mais apareceu nas legendas em volta da fala (a legenda chega um pouco depois da voz).
+function speakerOf(line) {
+  if (line.who !== "outros" || !rec || !heard.length) return null;
+  const from = rec.startedAt + (line.start - 1) * 1000;
+  const to = rec.startedAt + ((line.end ?? line.start) + 2.5) * 1000;
+  const count = new Map();
+  for (const e of heard) if (e.t >= from && e.t <= to) count.set(e.name, (count.get(e.name) || 0) + 1);
+  return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 }
 
 function stamp(seconds) {
@@ -89,7 +101,7 @@ function paintFeed() {
     const meta = document.createElement("div");
     meta.className = "meta";
     const at = Object.assign(document.createElement("span"), { className: "at", textContent: stamp(line.start) });
-    const who = Object.assign(document.createElement("span"), { className: "who", textContent: WHO[line.who] || line.who });
+    const who = Object.assign(document.createElement("span"), { className: "who", textContent: speakerOf(line) || WHO[line.who] || line.who });
     meta.append(at, who);
     row.append(meta, Object.assign(document.createElement("p"), { className: "said", textContent: line.text }));
     feed.append(row);
@@ -168,7 +180,28 @@ function paintState() {
 }
 
 // As notas ficam em storage.session enquanto grava e, depois de parar, na própria reunião.
+function paintGoal() {
+  const field = $("goal");
+  field.disabled = !rec;
+  if (document.activeElement === field) return; // não mexe no que a pessoa está digitando
+  const text = rec ? (goal.id === rec.id ? goal.text : "") : meeting?.goal || "";
+  if (field.value !== text) field.value = text;
+}
+
+let savingGoal = 0;
+function saveGoal() {
+  clearTimeout(savingGoal);
+  if (!rec) return Promise.resolve();
+  goal = { id: rec.id, text: $("goal").value.trim() };
+  return chrome.storage.session.set({ goal });
+}
+$("goal").addEventListener("input", () => {
+  clearTimeout(savingGoal);
+  savingGoal = setTimeout(saveGoal, 400);
+});
+
 function paintNotes() {
+  paintGoal();
   const box = $("notes");
   box.disabled = !rec;
   if (document.activeElement === box) return; // não mexe no que a pessoa está digitando
@@ -208,7 +241,9 @@ function tick() {
 }
 
 async function read() {
-  const session = await chrome.storage.session.get(["rec", "live", "notes"]);
+  const session = await chrome.storage.session.get(["rec", "live", "notes", "goal", "speakers"]);
+  heard = session.speakers?.id && session.speakers.id === session.rec?.id ? session.speakers.events || [] : [];
+  goal = session.goal || { id: null, text: "" };
   rec = session.rec || null;
   live = session.live || { id: null, lines: [], error: null, lag: false };
   notes = session.notes || { id: null, text: "" };
@@ -226,6 +261,7 @@ $("stop").addEventListener("click", async () => {
     return;
   }
   await saveNotes(); // o que ainda não passou pelo atraso de 400 ms entra na ata
+  await saveGoal();
   await chrome.runtime.sendMessage({ type: "rec-stop-soon" }).catch(() => {});
 });
 
@@ -290,7 +326,7 @@ $("jump").addEventListener("click", () => {
 
 let pending = 0;
 chrome.storage.onChanged.addListener((changes, area) => {
-  const relevant = area === "session" ? "rec" in changes || "live" in changes : Object.keys(changes).some((k) => k.startsWith("m:"));
+  const relevant = area === "session" ? "rec" in changes || "live" in changes || "speakers" in changes : Object.keys(changes).some((k) => k.startsWith("m:"));
   if (!relevant) return;
   cancelAnimationFrame(pending);
   pending = requestAnimationFrame(read);
