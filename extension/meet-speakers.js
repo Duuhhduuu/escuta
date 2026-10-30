@@ -123,6 +123,6 @@
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type !== "meet-speakers") return;
     if (msg.action !== "start") return setRunning(false);
-    chrome.storage.sync.get({ speakerNames: true }).then(({ speakerNames }) => setRunning(speakerNames !== false)).catch(() => {});
+    chrome.storage.sync.get({ speakerNames: false }).then(({ speakerNames }) => setRunning(speakerNames === true)).catch(() => {});
   });
 })();
