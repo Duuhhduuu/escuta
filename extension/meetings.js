@@ -306,6 +306,7 @@ async function stopMeeting() {
     // [segundo desde o início, nome]: é o que cruza com o horário de cada trecho da transcrição
     const speakers = heard?.id === rec.id ? heard.events.map((e) => [Math.round(((e.t - rec.startedAt) / 1000) * 10) / 10, e.name]) : [];
     // Mesmo que o gravador não responda, o que já foi salvo em disco ainda dá uma reunião.
+    await new Promise((resolve) => setTimeout(resolve, 400)); // as últimas falas ainda estão a caminho do service worker
     await saveChain; // o último texto ao vivo chega antes de a reunião mudar de estado
     const kept = await getMeeting(rec.id);
     await saveMeeting({
@@ -433,9 +434,46 @@ function nameSpeakers(segments, speakers) {
   });
 }
 
+// Eco: sem fones o microfone repete o que saiu no alto-falante. A fala "sua" que coincide no tempo
+// e no texto com a de um participante é eco, não você (mesma regra do painel ao vivo).
+const foldText = (s) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+const wordSet = (s) => new Set(foldText(s).replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean));
+function sameSaid(a, b) {
+  const x = wordSet(a);
+  const y = wordSet(b);
+  if (!x.size || !y.size) return false;
+  let common = 0;
+  for (const w of x) if (y.has(w)) common++;
+  return common / new Set([...x, ...y]).size >= 0.7;
+}
+function dropEcho(segments) {
+  const others = segments.filter((s) => s.who === "outros");
+  return segments.filter((s) => s.who !== "voce" || !others.some((o) => Math.abs(o.start - s.start) <= 4 && sameSaid(o.text, s.text)));
+}
+
+// O texto ao vivo basta quando não perdeu nenhuma janela e tem fala: a ata sai na hora, sem refazer a transcrição.
+function liveIsEnough(entry) {
+  if (entry.liveLost || !entry.provisional) return false;
+  const text = (entry.segments || []).map((s) => s.text || "").join(" ").trim();
+  if (!text) return false;
+  const seconds = entry.duration || 0;
+  return seconds < 30 || text.length >= seconds * 0.2; // fala normal passa de 10 caracteres por segundo; isto só barra o quase vazio
+}
+
 async function processMeetingNow(id) {
   const entry = await getMeeting(id);
   if (!entry) return;
+
+  if (liveIsEnough(entry)) {
+    // A transcrição ao vivo já ficou pronta durante a reunião, com o nome de quem falou: vai direto para a ata.
+    const segments = nameSpeakers(dropEcho(entry.segments), entry.speakers);
+    await patchMeeting(id, { status: "processing", stage: "minutes", progress: 1, error: null, provisional: false, segments });
+    logRec(`ata pelo texto ao vivo (${segments.length} trechos)`);
+    await writeMinutes(id, entry.template);
+    await RecDB.drop(id).catch(() => {}); // sem refazer a transcrição, o áudio não precisa mais ficar
+    return;
+  }
+
   await patchMeeting(id, { status: "processing", stage: "upload", progress: 0, error: null });
 
   const blob = await RecDB.blob(id, "audio/webm");
@@ -614,9 +652,11 @@ async function liveText(lines) {
   await keepLiveLines(rec.id, lines);
 }
 
-async function liveStatus({ error, lag }) {
+async function liveStatus({ error, lag, lost }) {
   const rec = await getRec();
   if (!rec?.live) return;
+  // Uma janela se perdeu: o texto ao vivo tem buraco, então no fim a transcrição completa assume.
+  if (lost || lag) await patchMeeting(rec.id, { liveLost: true });
   await updateLive((cur) => ({ ...cur, id: rec.id, error: error === undefined ? cur.error : error, lag: lag ?? (error === null ? false : cur.lag) }));
 }
 
