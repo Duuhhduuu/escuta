@@ -259,3 +259,8 @@ button.chip-btn:hover { border-color: var(--acc); }
 .chip--ok { background: var(--ok); color: #fff; }
 .chip--mid { background: var(--acc); color: var(--acc-ink); }
 .chip--bad { border: 1px solid var(--danger); color: var(--danger); }
+
+.chip--live { color: var(--danger); border-color: currentColor; }
+.chip--live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; animation: blink 1.2s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .chip--live::before { animation: none; } }

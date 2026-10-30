@@ -378,7 +378,8 @@ function meetingRow(m, terms) {
   what.append(title, el("span", "sub", bits));
 
   const state = el("span", "state");
-  if (m.status === "processing") state.append(el("span", "chip chip--busy", STAGES[m.stage] ? "Gerando a ata" : "Processando"));
+  if (m.status === "recording") state.append(el("span", "chip chip--live", "Ao vivo"));
+  else if (m.status === "processing") state.append(el("span", "chip chip--busy", STAGES[m.stage] ? "Gerando a ata" : "Processando"));
   else if (m.status === "failed") state.append(el("span", "chip chip--bad", "Não deu certo"));
   else state.append(el("span", "chev", "›"));
   row.append(when, what, state);
@@ -543,6 +544,14 @@ function meetingDetail(m, terms) {
   }
 
   const lines = transcriptLines(m);
+
+  // Gravando: o texto vai sendo salvo sozinho e a ata sai quando a reunião terminar.
+  if (m.status === "recording") {
+    const live = el("p", "busy");
+    live.setAttribute("role", "status");
+    live.append(el("span", "pulse"), "Gravando. A transcrição é salva sozinha e a ata sai quando a reunião terminar.");
+    view.append(live);
+  }
 
   // ---- ações
   const bar = el("div", "actions");
