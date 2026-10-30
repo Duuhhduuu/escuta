@@ -13,7 +13,8 @@
   // viram PCM de 16 kHz e são cortados nas pausas da fala, não de tempo em tempo: janela de
   // tempo fixo parte frases ao meio e o Whisper erra as pontas. Cada janela vai para /live.
   const LIVE = {
-    voiceRms: 0.01, // acima disso o bloco de 100 ms conta como fala
+    voiceRms: 0.01, // acima disso o bloco de 100 ms conta como fala (no seu microfone)
+    voiceRmsOthers: 0.004, // a voz dos outros chega mais baixa, vinda da chamada
     minWindowMs: 3000, // janela mais curta que isso espera mais fala, a não ser que haja pausa longa
     pauseMs: 600, // pausa que fecha uma frase
     maxWindowMs: 12_000, // ninguém espera mais que isso para ver texto
@@ -61,7 +62,7 @@
       clock += 100;
       frames.push(pcm);
       ms += 100;
-      if (rms > LIVE.voiceRms) {
+      if (rms > (who === "outros" ? LIVE.voiceRmsOthers : LIVE.voiceRms)) {
         voiceMs += 100;
         silentMs = 0;
       } else {
@@ -176,7 +177,12 @@
       buffer.copyToChannel(floats, 0);
       const now = ctx.currentTime;
       if (next[who] < now + 0.05) next[who] = now + 0.3; // folga contra o atraso da mensagem
-      if (next[who] > now + 2) return; // relógios desencontrados: descarta em vez de acumular atraso
+      // Blocos podem chegar em rajada (a extensão acorda e entrega o atraso de uma vez). Enfileira em
+      // vez de perder fala; só descarta se o atraso virar absurdo, o que indica relógios desencontrados.
+      if (next[who] > now + 10) {
+        next[who] = now + 0.3;
+        return;
+      }
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(dest[who]);

@@ -261,6 +261,8 @@ chrome.storage.sync.get({ live: true }).then(({ live }) => ($("live").checked = 
 $("live").addEventListener("change", () => chrome.storage.sync.set({ live: $("live").checked }));
 chrome.storage.sync.get({ autoMeet: false }).then(({ autoMeet }) => ($("autoMeet").checked = autoMeet));
 $("autoMeet").addEventListener("change", () => chrome.storage.sync.set({ autoMeet: $("autoMeet").checked }));
+chrome.storage.sync.get({ speakerNames: true }).then(({ speakerNames }) => ($("speakerNames").checked = speakerNames));
+$("speakerNames").addEventListener("change", () => chrome.storage.sync.set({ speakerNames: $("speakerNames").checked }));
 
 $("rec-stop").addEventListener("click", async () => {
   // Parar tem janela para desfazer; o segundo clique cancela.

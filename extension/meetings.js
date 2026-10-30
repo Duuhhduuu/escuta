@@ -6,6 +6,7 @@ const MEETING_PREFIX = "m:";
 const REC_KEY = "rec"; // gravação em andamento; storage.session sobrevive ao service worker dormir
 const LIVE_KEY = "live"; // texto ao vivo da gravação em andamento: { id, lines, error, lag }
 const NOTES_KEY = "notes"; // o que a pessoa anota no painel: { id, text }
+const SPEAKERS_KEY = "speakers"; // quem falou na chamada, lido das legendas do Meet: { id, events: [{ name, t }] }
 const GOAL_KEY = "goal"; // objetivo da reunião, escrito antes ou durante: { id, text }
 const LIVE_LINES_MAX = 5000;
 
@@ -163,6 +164,10 @@ async function startMeeting({ streamId, tabId, title, template, mic, source, goa
       return fail("page", "A página do Meet não respondeu. Recarregue o Meet e tente de novo.");
     }
   }
+  // Nomes de quem fala: só no Google Meet, que mostra o nome nas legendas.
+  await chrome.storage.session.set({ [SPEAKERS_KEY]: { id, events: [] } });
+  const onMeet = await chrome.tabs.get(tabId).then((t) => /^https:\/\/meet\.google\.com\//.test(t.url || ""), () => false);
+  if (onMeet) chrome.tabs.sendMessage(tabId, { type: "meet-speakers", action: "start" }).catch(() => {});
   await setRec({
     state: "recording",
     source: source || "tab",
@@ -267,6 +272,7 @@ async function stopMeeting() {
   clearTimeout(stopTimer);
   try {
     if (rec.source === "page") await chrome.tabs.sendMessage(rec.tabId, { type: "meet-capture", action: "stop" }).catch(() => {});
+    chrome.tabs.sendMessage(rec.tabId, { type: "meet-speakers", action: "stop" }).catch(() => {});
     const res = await toOffscreen({ type: "stop" });
     logRec(res?.ok ? `parou: ${Math.round(res.duration)} s gravados, ${res.chunks} pedaços` : `parou com aviso: ${res?.message}`);
     await closeOffscreen();
@@ -274,6 +280,9 @@ async function stopMeeting() {
     const notes = written?.id === rec.id ? String(written.text || "").trim() : "";
     const goalWritten = (await chrome.storage.session.get(GOAL_KEY))[GOAL_KEY];
     const goal = goalWritten?.id === rec.id ? String(goalWritten.text || "").trim() : "";
+    const heard = (await chrome.storage.session.get(SPEAKERS_KEY))[SPEAKERS_KEY];
+    // [segundo desde o início, nome]: é o que cruza com o horário de cada trecho da transcrição
+    const speakers = heard?.id === rec.id ? heard.events.map((e) => [Math.round(((e.t - rec.startedAt) / 1000) * 10) / 10, e.name]) : [];
     // Mesmo que o gravador não responda, o que já foi salvo em disco ainda dá uma reunião.
     await saveMeeting({
       id: rec.id,
@@ -286,6 +295,7 @@ async function stopMeeting() {
       mic: rec.mic,
       notes,
       goal,
+      speakers,
       status: "processing",
       stage: "upload",
       progress: 0,
@@ -382,6 +392,21 @@ async function processMeeting(id) {
   }
 }
 
+// Dá nome aos trechos dos participantes: a legenda do Meet chega um pouco depois da voz, então olha
+// uma janela em volta do trecho e fica com o nome que mais apareceu nela.
+const NAME_BEFORE = 1;
+const NAME_AFTER = 2.5;
+function nameSpeakers(segments, speakers) {
+  if (!speakers?.length) return segments;
+  return segments.map((seg) => {
+    if (seg.who !== "outros") return seg;
+    const count = new Map();
+    for (const [t, name] of speakers) if (t >= seg.start - NAME_BEFORE && t <= seg.end + NAME_AFTER) count.set(name, (count.get(name) || 0) + 1);
+    const best = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+    return best ? { ...seg, speaker: best[0] } : seg;
+  });
+}
+
 async function processMeetingNow(id) {
   const entry = await getMeeting(id);
   if (!entry) return;
@@ -405,7 +430,7 @@ async function processMeetingNow(id) {
   }
 
   await patchMeeting(id, {
-    segments: result.data.segments,
+    segments: nameSpeakers(result.data.segments, entry.speakers),
     duration: result.data.duration || entry.duration,
     mic: result.data.mic,
     stage: "minutes",
@@ -550,6 +575,16 @@ async function liveStatus({ error, lag }) {
 
 // Pergunta sobre uma reunião. A conversa fica guardada na própria reunião (m.chat), então ao
 // reabrir ela continua lá. O servidor recebe a ata, as notas, a transcrição e as últimas trocas.
+async function addSpeaker({ name, t }) {
+  const rec = await getRec();
+  if (!rec || !name) return { ok: true };
+  const held = (await chrome.storage.session.get(SPEAKERS_KEY))[SPEAKERS_KEY];
+  if (held?.id !== rec.id) return { ok: true };
+  if (held.events.length < 20_000) held.events.push({ name: String(name).slice(0, 80), t });
+  await chrome.storage.session.set({ [SPEAKERS_KEY]: held });
+  return { ok: true };
+}
+
 async function askMeeting({ id, question }) {
   const m = await getMeeting(id);
   if (!m) return fail("gone", "Reunião apagada.");
@@ -590,6 +625,8 @@ async function askMeeting({ id, question }) {
 
 function meetingHandle(msg) {
   switch (msg.type) {
+    case "meet-speaker":
+      return addSpeaker(msg);
     case "meeting-ask":
       return askMeeting(msg);
     case "meeting-goal":

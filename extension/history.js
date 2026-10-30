@@ -94,7 +94,7 @@ function matches(entry, terms) {
 const WHO = { voce: "Você", outros: "Participantes" };
 
 const transcriptLines = (m) =>
-  (m.segments || []).filter((s) => s.text).map((s) => ({ at: stamp(s.start), who: WHO[s.who] || s.who, text: s.text }));
+  (m.segments || []).filter((s) => s.text).map((s) => ({ at: stamp(s.start), who: s.speaker || WHO[s.who] || s.who, text: s.text }));
 
 function meetingMatches(m, terms) {
   const hay = fold(

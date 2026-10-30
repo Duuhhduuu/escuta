@@ -157,7 +157,7 @@ def stamp(seconds):
 def format_transcript(segments):
     """'[01:23] Você: texto', uma linha por trecho."""
     return "\n".join(
-        f"[{stamp(seg['start'])}] {WHO_LABEL.get(seg['who'], seg['who'])}: {seg['text'].strip()}"
+        f"[{stamp(seg['start'])}] {seg.get('speaker') or WHO_LABEL.get(seg['who'], seg['who'])}: {seg['text'].strip()}"
         for seg in segments
         if seg["text"].strip()
     )
