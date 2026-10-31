@@ -424,8 +424,11 @@ async function processMeeting(id) {
 // uma janela em volta do trecho e fica com o nome que mais apareceu nela.
 const NAME_BEFORE = 1;
 const NAME_AFTER = 2.5;
-function nameSpeakers(segments, speakers, me = "") {
-  if (!speakers?.length && !me) return segments;
+function nameSpeakers(segments, allSpeakers, me = "") {
+  // O meu nome nunca é de uma fala dos outros: se a extensão ainda não sabia qual era o meu quadro e o tomou por
+  // outra pessoa, esses avisos saem aqui, mesmo depois de a reunião ter acabado.
+  const speakers = (allSpeakers || []).filter((s) => !me || s[1] !== me);
+  if (!speakers.length && !me) return segments;
   // Chamada de duas pessoas: todos os avisos vieram com uma só outra pessoa na tela e com o mesmo nome.
   // Então toda fala dos outros é dela, mesmo a que não tem aviso por perto (a leitura do nome falha às vezes).
   const names = new Set((speakers || []).map((s) => s[1]));
