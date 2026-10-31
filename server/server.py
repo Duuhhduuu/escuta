@@ -439,7 +439,9 @@ def transcribe_live(pcm, model, language, prompt):
     model = canonical_model(model)
     language = None if language == "auto" else language
     samples = boost(samples)
-    prompt = meeting.prompt_tail(prompt) or None  # o fim da fala anterior (sem murmúrios): ajuda nomes e a pontuação a continuar
+    # O fim da fala anterior (sem murmúrios) ajuda nomes e a pontuação a continuar. No começo, sem fala
+    # anterior, a dica fixa segura o idioma: era aí que o texto vinha torto ou em outra língua.
+    prompt = meeting.prompt_tail(prompt) or (meeting.LIVE_SEED if language == "pt" else None)
 
     def job():
         global _cuda_broken
@@ -494,7 +496,7 @@ def transcribe_live(pcm, model, language, prompt):
             _faster_models.clear()
             return run("cpu", "int8")
 
-    return meeting.clean_live(whisper_worker.submit(job).result())
+    return meeting.clean_live(whisper_worker.submit(job).result(), language or "auto")
 
 
 def transcribe_meeting(audio, model, language, emit):
