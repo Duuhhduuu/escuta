@@ -275,7 +275,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 chrome.storage.sync.get({ myName: "" }).then(({ myName }) => ($("myName").value = myName));
 $("myName").addEventListener("change", () => chrome.storage.sync.set({ myName: $("myName").value.trim().slice(0, 80) }));
-chrome.storage.sync.get({ speakerNames: true }).then(({ speakerNames }) => ($("speakerNames").checked = speakerNames));
+chrome.storage.sync.get({ speakerNames: false }).then(({ speakerNames }) => ($("speakerNames").checked = speakerNames));
 $("speakerNames").addEventListener("change", () => chrome.storage.sync.set({ speakerNames: $("speakerNames").checked }));
 
 $("rec-stop").addEventListener("click", async () => {

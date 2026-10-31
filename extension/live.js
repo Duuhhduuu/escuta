@@ -266,7 +266,20 @@ $("notes").addEventListener("input", () => {
 });
 
 let stopSent = false;
+// Quem está falando agora: o último nome avisado, se for de menos de 1,8 s; senão a sua voz, se o provisório é seu.
+function paintSpeaking() {
+  const chip = $("speaking");
+  const live_ = rec && !rec.paused;
+  const last = live_ ? heard[heard.length - 1] : null;
+  let who = "";
+  if (last && Date.now() - last.t < 1800) who = last.name;
+  else if (live_ && live.partial?.voce?.length) who = meName || "Você";
+  chip.hidden = !who;
+  if (who && $("speaking-name").textContent !== who) $("speaking-name").textContent = who;
+}
+
 function tick() {
+  paintSpeaking();
   if (rec?.stopAt) {
     const left = Math.max(0, Math.ceil((rec.stopAt - Date.now()) / 1000));
     $("stop").textContent = `Desfazer (${left})`;
