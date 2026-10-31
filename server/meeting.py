@@ -263,12 +263,31 @@ def speech_gain(rms, peak, target=0.08, cap=12.0):
     return gain if gain >= 1.2 else 1.0
 
 
-def clean_live(segments):
+# Primeira dica do Whisper, antes de haver fala anterior: mantém o idioma e o tom de conversa de trabalho.
+LIVE_SEED = "Conversa de trabalho em português do Brasil."
+
+_EN = {"the", "you", "and", "thank", "thanks", "for", "watching", "this", "that", "is", "are", "with", "have", "it", "of", "to", "in", "i"}
+_PT = {"de", "que", "o", "a", "e", "não", "nao", "é", "um", "uma", "para", "com", "eu", "você", "voce", "tá", "ta", "né", "ne", "do", "da", "em", "os", "as", "se", "mas", "por", "foi", "tem", "já", "ja", "isso"}
+
+
+def looks_english(text):
+    """Janela com ruído que o Whisper 'traduz' para inglês ("Thank you."). Só vale quando a conversa é em português."""
+    words = [w for w in _norm(text).split() if w]
+    if not words:
+        return False
+    en = sum(w in _EN for w in words)
+    pt = sum(w in _PT for w in words)
+    return (en >= 2 and en > pt) or (en >= 1 and pt == 0 and len(words) <= 4)
+
+
+def clean_live(segments, language="pt"):
     """Trechos de uma janela ao vivo que valem mostrar: tira vazio, murmúrio, silêncio com palpite e frase de fim de vídeo."""
     keep = []
     for seg in segments:
         text = seg["text"].strip()
         if not text or _is_filler(text):
+            continue
+        if language == "pt" and (looks_english(text) or _norm(LIVE_SEED) in _norm(text)):
             continue
         if seg.get("no_speech", 0) > 0.6 and seg.get("logprob", 0) < -1.0:
             continue

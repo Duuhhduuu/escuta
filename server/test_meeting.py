@@ -258,6 +258,24 @@ class Accuracy(unittest.TestCase):
         self.assertLessEqual(0.6 * gain, 0.95 + 1e-9)
         self.assertLessEqual(meeting.speech_gain(0.003, 0.004), 12.0)
 
+    def test_english_noise_is_dropped_in_portuguese_calls(self):
+        seg = lambda t: {"start": 0, "end": 2, "text": t, "no_speech": 0.1, "logprob": -0.2}
+        out = meeting.clean_live([seg("Thank you."), seg("Thanks for watching!"), seg("Bom dia, vamos começar."), seg("Fechei o contrato com o time")])
+        self.assertEqual([s["text"] for s in out], ["Bom dia, vamos começar.", "Fechei o contrato com o time"])
+
+    def test_english_is_kept_when_the_call_is_not_portuguese(self):
+        out = meeting.clean_live([{"start": 0, "end": 2, "text": "Thank you for the update.", "no_speech": 0.1, "logprob": -0.2}], "en")
+        self.assertEqual(len(out), 1)
+
+    def test_portuguese_with_a_few_english_words_is_kept(self):
+        # reunião de trabalho mistura termos em inglês: não pode virar "ruído"
+        t = "Vamos fazer o deploy do feature na sexta e revisar o pull request"
+        self.assertFalse(meeting.looks_english(t))
+
+    def test_the_seed_prompt_is_never_shown_as_speech(self):
+        out = meeting.clean_live([{"start": 0, "end": 2, "text": meeting.LIVE_SEED, "no_speech": 0.1, "logprob": -0.2}])
+        self.assertEqual(out, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

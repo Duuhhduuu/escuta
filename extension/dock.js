@@ -15,7 +15,7 @@
   const CSS = `
     :host { all: initial; }
     .panel {
-      position: fixed; top: 12px; right: 12px; bottom: 12px; width: 384px; max-width: calc(100vw - 24px);
+      position: fixed; right: 12px; bottom: 12px; width: 340px; height: min(calc(100vh - 24px), 640px); max-width: calc(100vw - 24px);
       z-index: 2147483647; border-radius: 14px; overflow: hidden;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px #2a3354;
       background: #161d32;

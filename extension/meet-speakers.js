@@ -147,6 +147,10 @@
   const bare = (name) => name.replace(/\s*\((voc[eê]|you)\)\s*$/i, "").trim();
   let myName = "";
 
+  let current = ""; // quem estava falando por último: só troca com prova clara, ruído de fundo não troca
+  let currentAt = 0;
+  let challenger = { name: "", ticks: 0 };
+
   function tickTiles() {
     watch();
     const all = tiles();
@@ -158,14 +162,28 @@
     }
     const others = named.filter((p) => !isSelf(p.el, p.name, all));
     let name = "";
+    const now = Date.now();
     if (others.length === 1) {
       name = others[0].name; // só uma outra pessoa na chamada: é ela
     } else if (others.length > 1) {
-      const now = Date.now();
       const score = others.map((p) => ({ name: p.name, n: (spoke.get(p.el) || []).filter((t) => now - t < 800).length })).sort((a, b) => b.n - a.n);
-      if (score[0].n >= 2 && score[0].n >= score[1].n * 1.5) name = score[0].name; // sem vencedor claro: não chuta
+      const best = score[0];
+      if (best.n >= 3 && best.n >= (score[1]?.n || 0) * 1.5) {
+        // Troca de quem fala só depois de a mesma pessoa liderar em dois instantes seguidos (1 s).
+        // Um quadro que mexe por outro motivo (efeito, vídeo ligando) não rouba a vez.
+        challenger = challenger.name === best.name ? { name: best.name, ticks: challenger.ticks + 1 } : { name: best.name, ticks: 1 };
+        if (best.name === current || challenger.ticks >= 2) name = best.name;
+      } else {
+        challenger = { name: "", ticks: 0 };
+      }
+      // Sem prova nova, quem falava há pouco continua falando: o som não some só porque o anel parou.
+      if (!name && current && now - currentAt < 4000) name = current;
     }
-    if (name) send({ type: "meet-speaker", name: name.slice(0, 80), t: Date.now() });
+    if (name) {
+      if (name !== current) current = name;
+      currentAt = now;
+      send({ type: "meet-speaker", name: name.slice(0, 80), t: now });
+    }
   }
 
   function tick() {
