@@ -254,10 +254,11 @@ def prompt_tail(text, limit=220):
     return " ".join(sentences)[-limit:].strip()
 
 
-def speech_gain(rms, peak, target=0.08, cap=12.0):
+def speech_gain(rms, peak, target=0.08, cap=8.0):
     """Ganho para a voz baixa chegar ao Whisper num volume em que ele acerta mais.
-    Não amplifica ruído de fundo (rms muito baixo), nem passa do limite e nem estoura o pico."""
-    if rms < 0.002 or peak <= 0 or rms >= target:
+    Não amplifica ruído de fundo (rms baixo: aumentá-lo faz o Whisper "ouvir" fala onde não há), nem
+    passa do limite e nem estoura o pico."""
+    if rms < 0.004 or peak <= 0 or rms >= target:
         return 1.0
     gain = min(cap, target / rms, 0.95 / peak)
     return gain if gain >= 1.2 else 1.0
@@ -280,12 +281,18 @@ def looks_english(text):
     return (en >= 2 and en > pt) or (en >= 1 and pt == 0 and len(words) <= 4)
 
 
+def is_repetition(text):
+    """Uma ou duas palavras repetidas em fila ("eai eai eai"): é o que o Whisper escreve em cima de ruído."""
+    words = _norm(text).split()
+    return len(words) >= 3 and len(set(words)) <= max(1, len(words) // 3)
+
+
 def clean_live(segments, language="pt"):
     """Trechos de uma janela ao vivo que valem mostrar: tira vazio, murmúrio, silêncio com palpite e frase de fim de vídeo."""
     keep = []
     for seg in segments:
         text = seg["text"].strip()
-        if not text or _is_filler(text):
+        if not text or _is_filler(text) or is_repetition(text):
             continue
         if language == "pt" and (looks_english(text) or _norm(LIVE_SEED) in _norm(text)):
             continue

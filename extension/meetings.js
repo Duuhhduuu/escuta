@@ -313,6 +313,7 @@ async function stopMeeting() {
     // Mesmo que o gravador não responda, o que já foi salvo em disco ainda dá uma reunião.
     await new Promise((resolve) => setTimeout(resolve, 400)); // as últimas falas ainda estão a caminho do service worker
     await saveChain; // o último texto ao vivo chega antes de a reunião mudar de estado
+    await updateLive((cur) => ({ ...cur, partial: {} })); // parou: não sobra texto provisório no painel
     const kept = await getMeeting(rec.id);
     await saveMeeting({
       ...(kept || {}),
@@ -655,8 +656,27 @@ function keepLiveLines(id, lines) {
 async function liveText(lines) {
   const rec = await getRec();
   if (!rec?.live || !Array.isArray(lines)) return; // chegou depois de parar, ou ninguém pediu
-  await updateLive((cur) => ({ ...cur, id: rec.id, lines: [...cur.lines, ...lines].slice(-LIVE_LINES_MAX) }));
+  await updateLive((cur) => {
+    // A fala fechou: o texto provisório daquele lado sai e o ponto até onde há texto definitivo avança.
+    const cut = { ...(cur.cut || {}) };
+    const partial = { ...(cur.partial || {}) };
+    for (const l of lines) {
+      cut[l.who] = Math.max(cut[l.who] || 0, l.end);
+      partial[l.who] = [];
+    }
+    return { ...cur, id: rec.id, lines: [...cur.lines, ...lines].slice(-LIVE_LINES_MAX), cut, partial };
+  });
   await keepLiveLines(rec.id, lines);
+}
+
+// Texto provisório da frase em andamento. Fica só na sessão (para o painel); não vai para a reunião.
+async function livePartial({ who, t0, lines }) {
+  const rec = await getRec();
+  if (!rec?.live || (who !== "voce" && who !== "outros")) return;
+  await updateLive((cur) => {
+    if (lines?.length && t0 < (cur.cut?.[who] || 0) - 0.2) return cur; // chegou depois de a fala fechar
+    return { ...cur, id: rec.id, partial: { ...(cur.partial || {}), [who]: Array.isArray(lines) ? lines : [] } };
+  });
 }
 
 async function liveStatus({ error, lag, lost }) {
@@ -775,6 +795,8 @@ function meetingHandle(msg) {
       return showLive(msg.tabId).then((panel) => ({ ok: true, data: panel }));
     case "live-text":
       return liveText(msg.lines).then(() => ({ ok: true }));
+    case "live-partial":
+      return livePartial(msg).then(() => ({ ok: true }));
     case "live-status":
       return liveStatus(msg).then(() => ({ ok: true }));
     case "rec-pending":

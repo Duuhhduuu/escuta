@@ -261,6 +261,18 @@ chrome.storage.sync.get({ live: true }).then(({ live }) => ($("live").checked = 
 $("live").addEventListener("change", () => chrome.storage.sync.set({ live: $("live").checked }));
 chrome.storage.sync.get({ autoMeet: false }).then(({ autoMeet }) => ($("autoMeet").checked = autoMeet));
 $("autoMeet").addEventListener("change", () => chrome.storage.sync.set({ autoMeet: $("autoMeet").checked }));
+// O idioma fica à vista, junto do modelo da ata; o do "Ajustes" é o mesmo ajuste e acompanha este.
+const recLanguage = $("recLanguage");
+chrome.storage.sync.get({ language: "pt" }).then(({ language }) => (recLanguage.value = language));
+recLanguage.addEventListener("change", () => {
+  chrome.storage.sync.set({ language: recLanguage.value });
+  $("language").value = recLanguage.value;
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "sync" || !changes.language) return;
+  recLanguage.value = changes.language.newValue;
+  $("language").value = changes.language.newValue;
+});
 chrome.storage.sync.get({ myName: "" }).then(({ myName }) => ($("myName").value = myName));
 $("myName").addEventListener("change", () => chrome.storage.sync.set({ myName: $("myName").value.trim().slice(0, 80) }));
 chrome.storage.sync.get({ speakerNames: false }).then(({ speakerNames }) => ($("speakerNames").checked = speakerNames));
