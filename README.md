@@ -88,6 +88,8 @@ A transcrição acontece na sua máquina, com o [Whisper](https://github.com/SYS
 
 Cole **uma linha** no terminal. Um assistente mostra cada etapa (Python, ambiente, modelo Whisper, resumo, servidor e extensão), pergunta antes de instalar e, no fim, copia o caminho da extensão e abre o `chrome://extensions`.
 
+No Windows, se o Python não estiver instalado, o instalador tenta o `winget` e depois baixa o instalador oficial com verificação SHA-256. Ele pergunta qual provedor de resumo você prefere, com Ollama local como padrão. Se escolher Ollama, instala o programa se faltar e baixa `qwen2.5:3b-instruct` (cerca de 1,9 GB). Se escolher Gemini, pede a chave e configura o servidor. Isso exige internet e espaço livre.
+
 **Windows** (abra o PowerShell):
 
 ```powershell
@@ -122,10 +124,10 @@ O Chrome não deixa nenhum programa instalar extensões sozinho, então esta par
 | --- | --- | --- |
 | **Sistema** | Windows 10 ou 11, macOS ou Linux | No Mac com chip Apple, a transcrição usa `mlx-whisper`. |
 | **Navegador** | Chrome ou Brave | O Firefox funciona para o WhatsApp, mas não grava reuniões ([veja abaixo](#firefox)). |
-| **Python** | 3.9 ou mais novo | No Windows, o instalador tenta instalar sozinho pelo `winget`. |
-| **Disco** | Uns 5 GB livres | O modelo Whisper tem ~1,6 GB. Com placa NVIDIA, as bibliotecas CUDA somam mais ~700 MB. |
+| **Python** | 3.9 ou mais novo | No Windows, o instalador tenta instalar sozinho pelo `winget` e usa o instalador oficial como alternativa. |
+| **Disco** | Uns 7 GB livres | Whisper até ~1,6 GB, modelo local do Ollama ~1,9 GB e, com placa NVIDIA, bibliotecas CUDA ~700 MB. |
 | **Placa de vídeo** | Opcional | Com NVIDIA a transcrição é muito mais rápida. Sem ela, funciona no processador. |
-| **Para os resumos** | [Ollama](https://ollama.com/download) **ou** uma chave do Gemini | Um dos dois. Veja [Resumos](#resumos-gemini-ou-ollama). |
+| **Para os resumos** | [Ollama](https://ollama.com/download) **ou** uma chave do Gemini | No Windows, o instalador pergunta qual usar e deixa Ollama selecionado por padrão. |
 
 <details>
 <summary><b>Prefere instalar sem o comando de uma linha?</b></summary>
@@ -140,12 +142,12 @@ git clone https://github.com/Duuhhduuu/escuta.git
 
 **2. Instale o servidor.**
 
-- **Windows:** instale o [Python 3](https://python.org) marcando **Add python.exe to PATH** e dê dois cliques em **`instalar.bat`**, na raiz da pasta. Ele instala o servidor, pergunta a chave do Gemini (pode pular), liga a inicialização automática e sobe o servidor.
+- **Windows:** dê dois cliques em **`instalar.bat`**, na raiz da pasta. Ele usa o mesmo instalador automático, prepara o Python se faltar, pergunta a chave do Gemini (pode pular), instala Ollama e o modelo local se necessário, liga a inicialização automática e sobe o servidor.
 - **Mac ou Linux:**
   ```bash
   cd server && ./setup.sh
   ```
-  No Mac, instale o Ollama com `brew install --cask ollama` e baixe um modelo com `ollama pull qwen2.5:7b`.
+  No Mac, instale o Ollama com `brew install --cask ollama` e baixe um modelo com `ollama pull qwen2.5:3b-instruct`.
 
 **3. Ligue a extensão** pelos passos de [Falta um passo](#falta-um-passo-ligar-a-extensão-no-navegador).
 
@@ -186,10 +188,10 @@ Além do WhatsApp, o Escuta grava reuniões do **Google Meet** e escreve a ata. 
 ### Gravar com um clique
 
 1. Abra a aba da reunião e clique no ícone do Escuta **nessa aba**.
-2. Em **Reunião**, escolha o **modelo da ata** e clique em **Gravar esta aba**. A gravação começa **na hora**, sem pedir nada.
-3. Ao terminar, clique em **Parar e gerar a ata**.
+2. Em **Reunião**, escolha o **modelo da ata** e clique em **Gravar esta aba**. A reunião aparece no histórico como **Ao vivo** desde o início.
+3. Durante a gravação, a transcrição é salva automaticamente. Ao parar, a transcrição completa substitui a prévia e a ata é gerada sozinha.
 
-O ícone mostra **REC** enquanto grava, **II** quando está pausado, **…** enquanto processa e **✓** quando a ata está pronta. Ela aparece em **Pesquisar transcrições**, com a ata formatada, a transcrição de quem falou o quê (**Você** e **Participantes**) e botões para copiar, baixar em `.md` e refazer a ata com outro modelo.
+O ícone mostra **REC** enquanto grava, **II** quando está pausado, **…** enquanto processa e **!** se houver erro. Quando termina, a ata aparece em **Pesquisar transcrições**, com a transcrição de quem falou o quê (**Você** e **Participantes**) e botões para copiar, baixar em `.md` e refazer a ata com outro modelo.
 
 > [!NOTE]
 > **O microfone é opcional.** Sem permissão, o Escuta grava o áudio da aba, que já tem todos os participantes. Para gravar também a **sua** voz, clique em *Também gravar a minha voz* no popup e permita o microfone, uma vez só.
@@ -199,7 +201,7 @@ O ícone mostra **REC** enquanto grava, **II** quando está pausado, **…** enq
 
 ### Gravar sozinho no Google Meet (experimental)
 
-Marque **Gravar sozinho as chamadas do Google Meet** no popup. Daí em diante, quando você entra numa chamada o Escuta começa a gravar e abre o painel ao vivo, **sem nenhum clique**. Quando você sai, a gravação para e a ata é gerada.
+Marque **Gravar sozinho as chamadas do Google Meet** no popup. Daí em diante, quando você entra numa chamada o Escuta começa a gravar e abre o painel ao vivo, **sem nenhum clique**. A transcrição é salva durante a reunião; quando você sai, a gravação para e a ata é gerada automaticamente.
 
 - Funciona lendo o áudio que o próprio Meet usa, então **não pede permissão de microfone** e não depende de clicar no ícone.
 - Vem **desligado** por padrão. Se ligar, **avise os participantes** de que a reunião está sendo gravada.
@@ -256,6 +258,7 @@ Ao começar a gravar, um painel aparece ao lado da reunião, com a transcrição
 ### Bom saber
 
 - A gravação é salva no disco do navegador a cada 10 s. Se o servidor estiver desligado ao parar, ou o navegador cair, o áudio não se perde: a reunião aparece com **Tentar de novo**.
+- Se a transcrição final falhar, a prévia ao vivo fica salva, mas a ata não é gerada. Use **Tentar de novo** para transcrever o áudio e gerar a ata.
 - Fechar a aba da reunião encerra a gravação e gera a ata com o que foi gravado.
 - Uma reunião de 1 hora tem uns 30 MB e leva alguns minutos para transcrever numa placa NVIDIA. Enquanto isso, mensagens de voz do WhatsApp esperam a vez.
 - Se algo não aparecer, abra o popup: **O que aconteceu na última gravação** lista cada etapa (captura da aba, microfone, painel, servidor), com um botão para copiar.
@@ -278,16 +281,19 @@ Os resumos e as atas podem sair de dois lugares:
 | Privacidade | Nada sai da máquina | Só o **texto** já transcrito sai. O áudio nunca. |
 | Custo | Grátis | Tem camada gratuita |
 | Velocidade | Depende do seu computador | Rápido, em segundos |
-| Como ativar | Instale o [Ollama](https://ollama.com/download) e baixe um modelo | Ponha uma chave no `.env` |
+| Modelo local | `qwen2.5:3b-instruct` (padrão) | Gemini Flash Lite |
+| Como ativar | Opção padrão do instalador; no Windows ele instala o [Ollama](https://ollama.com/download) e baixa o modelo | Escolha Gemini no instalador e informe a chave; ou configure `GEMINI_API_KEY` no `.env` |
 
-Para usar o Gemini, pegue uma chave em [aistudio.google.com/apikey](https://aistudio.google.com/apikey) e coloque no `server/.env`:
+Para usar o Gemini manualmente, pegue uma chave em [aistudio.google.com/apikey](https://aistudio.google.com/apikey) e coloque no `server/.env`:
 
 ```ini
 GEMINI_API_KEY=sua-chave
+# opcional; o instalador grava conforme a opção escolhida
+ESCUTA_SUMMARY_PROVIDER=gemini
 # GEMINI_MODEL=gemini-flash-lite-latest
 ```
 
-Com a chave presente, todo resumo vai para o Gemini e o Ollama deixa de ser necessário. O ícone da extensão passa a mostrar `Gemini · <modelo>`. Sem a chave, tudo continua local.
+O instalador grava a escolha em `ESCUTA_SUMMARY_PROVIDER`. Ao escolher Ollama, ele fica ativo mesmo se já houver uma chave Gemini salva. Ao escolher Gemini, o texto transcrito é enviado ao Google e o ícone da extensão mostra `Gemini · <modelo>`.
 
 ### Subir sozinho com o computador
 
@@ -319,6 +325,7 @@ Preencher só o campo da extensão não protege nada: o servidor continua aceita
 | --- | --- | --- |
 | `GEMINI_API_KEY` | Resumos pelo Gemini. | vazio (usa o Ollama) |
 | `GEMINI_MODEL` | Modelo do Gemini. | `gemini-flash-lite-latest` |
+| `ESCUTA_SUMMARY_PROVIDER` | `ollama` ou `gemini`; define qual provedor tem prioridade. | vazio: Gemini se há chave; senão Ollama |
 | `ESCUTA_TOKEN` | Segredo compartilhado com a extensão. | vazio |
 | `ESCUTA_DEVICE` / `ESCUTA_COMPUTE` | Forçar `cpu` ou `cuda` e o tipo de cálculo. | automático |
 | `ESCUTA_BATCH` | Trechos de áudio que a GPU processa de uma vez. Baixe para 8 ou 4 se a placa tiver pouca memória. | `16` |
@@ -328,7 +335,7 @@ Preencher só o campo da extensão não protege nada: o servidor continua aceita
 ## Privacidade
 
 - **O áudio fica no seu computador.** A transcrição roda localmente.
-- **Nada vai para a nuvem por padrão.** Só se você colocar uma chave do Gemini, o texto já transcrito (nunca o áudio) é enviado para gerar o resumo.
+- **Nada vai para a nuvem por padrão.** Só quando Gemini é selecionado e configurado, o texto já transcrito (nunca o áudio) é enviado para gerar o resumo.
 - **As transcrições ficam no navegador.** Nada é guardado num servidor de terceiros.
 - **O servidor só aceita conexões locais** e só de extensões do navegador. Com `ESCUTA_TOKEN`, ele também exige o segredo.
 - **O diagnóstico não vaza mensagens.** O botão **Copiar diagnóstico** copia só nomes de ícones e rótulos da página, nunca o texto das conversas.
@@ -369,7 +376,7 @@ Provavelmente está usando o processador. No ícone, o item **Whisper** mostra o
 
 <br>
 
-É preciso um dos dois: o **Ollama** aberto, com um modelo baixado, ou uma chave do **Gemini** no `.env`. O ícone da extensão mostra qual está ativo. Se o Ollama estiver offline, abra o app. Se a chave do Gemini for recusada, confira o valor de `GEMINI_API_KEY`.
+É preciso um dos dois: o **Ollama** aberto, com um modelo baixado, ou Gemini selecionado com uma chave válida no `.env`. O ícone da extensão mostra qual está ativo. Se o Ollama estiver offline, abra o app. Se a chave do Gemini for recusada, confira `GEMINI_API_KEY` e `ESCUTA_SUMMARY_PROVIDER`.
 
 </details>
 
