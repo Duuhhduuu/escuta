@@ -425,7 +425,7 @@ def boost(samples):
     return samples * np.float32(gain) if gain != 1.0 else samples
 
 
-def transcribe_live(pcm, model, language, prompt):
+def transcribe_live(pcm, model, language, prompt, strict=False):
     """Uma janela curta (PCM de 16 bits, 16 kHz, mono) vira trechos com horário relativo à janela.
     É o que alimenta a transcrição ao vivo: rápido e sem a conferência que a gravação inteira recebe."""
     engine = whisper_engine()
@@ -496,7 +496,7 @@ def transcribe_live(pcm, model, language, prompt):
             _faster_models.clear()
             return run("cpu", "int8")
 
-    return meeting.clean_live(whisper_worker.submit(job).result(), language or "auto")
+    return meeting.live_segments(whisper_worker.submit(job).result(), language or "auto", strict)
 
 
 def transcribe_meeting(audio, model, language, emit):
@@ -841,7 +841,8 @@ class Handler(BaseHTTPRequestHandler):
             model = query.get("model", [DEFAULT_WHISPER])[0]
             language = query.get("language", ["pt"])[0]
             prompt = query.get("prompt", [""])[0]
-            self._guard(lambda: {"segments": transcribe_live(self._read_body(MAX_LIVE), model, language, prompt)})
+            strict = query.get("partial", ["0"])[0] == "1"  # texto provisório: só o que o modelo ouviu com confiança
+            self._guard(lambda: {"segments": transcribe_live(self._read_body(MAX_LIVE), model, language, prompt, strict)})
         elif url.path == "/meeting":
             query = parse_qs(url.query)
             model = query.get("model", [DEFAULT_WHISPER])[0]

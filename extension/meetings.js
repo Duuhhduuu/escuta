@@ -646,7 +646,8 @@ function keepLiveLines(id, lines) {
     .then(async () => {
       const m = await getMeeting(id);
       if (!m || m.status !== "recording") return; // parou no meio: a transcrição completa assume
-      const merged = [...(m.segments || []), ...lines.filter((l) => l?.text)].sort((a, b) => a.start - b.start).slice(-LIVE_SAVED_MAX);
+      // Os sons (hum, tosse, ruído) aparecem no painel, mas não entram na transcrição salva nem na ata.
+      const merged = [...(m.segments || []), ...lines.filter((l) => l?.text && !l.sound)].sort((a, b) => a.start - b.start).slice(-LIVE_SAVED_MAX);
       await patchMeeting(id, { segments: merged });
     })
     .catch((err) => console.warn("[escuta] salvar texto ao vivo:", err));

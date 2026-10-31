@@ -253,6 +253,41 @@ class Accuracy(unittest.TestCase):
         self.assertEqual(meeting.speech_gain(0.0005, 0.01), 1.0)  # ruído de fundo: não amplifica
         self.assertEqual(meeting.speech_gain(0.0, 0.0), 1.0)
 
+    def test_gibberish_is_not_shown(self):
+        seg = lambda t: {"start": 0, "end": 2, "text": t, "no_speech": 0.1, "logprob": -0.2}
+        lixo = ["kAWSKAWSKAWSK", "AAAAAAAAAA", "Xkjzzzqwrt", "bhgfdsk ploiuy", "kawskawskawsk"]
+        for t in lixo:
+            self.assertEqual(meeting.clean_live([seg(t)]), [], t)
+
+    def test_brands_acronyms_and_normal_speech_are_not_gibberish(self):
+        for t in ["Vou mandar no WhatsApp", "Abre o PowerPoint e o iPhone", "A API do CRM caiu", "Transporte e monstro de planilha", "O Wi-Fi está ótimo, né?"]:
+            self.assertFalse(meeting.looks_gibberish(t), t)
+
+    def test_provisional_text_only_passes_with_confidence(self):
+        confident = {"start": 0, "end": 2, "text": "E sobre o prazo da integração", "no_speech": 0.05, "logprob": -0.3}
+        unsure = {"start": 0, "end": 2, "text": "E sobre o prazo da integração", "no_speech": 0.05, "logprob": -1.1}
+        noisy = {"start": 0, "end": 2, "text": "E sobre o prazo da integração", "no_speech": 0.5, "logprob": -0.3}
+        single = {"start": 0, "end": 2, "text": "Então", "no_speech": 0.05, "logprob": -0.3}
+        self.assertEqual(len(meeting.clean_live([confident], "pt", True)), 1)
+        self.assertEqual(meeting.clean_live([unsure], "pt", True), [])
+        self.assertEqual(meeting.clean_live([noisy], "pt", True), [])
+        self.assertEqual(meeting.clean_live([single], "pt", True), [])
+        # o texto definitivo é menos rígido: o mesmo trecho incerto ainda vale
+        self.assertEqual(len(meeting.clean_live([unsure], "pt", False)), 1)
+
+    def test_sounds_are_shown_as_sounds_not_as_garbage(self):
+        seg = lambda t, a, b=-0.2, n=0.1: {"start": a, "end": a + 1, "text": t, "no_speech": n, "logprob": b}
+        out = meeting.live_segments([seg("Hum-hum.", 0), seg("kAWSKAWSKAWSK", 2), seg("Tosse", 4), seg("Fechamos o orçamento", 6)])
+        self.assertEqual([(s["text"], bool(s.get("sound"))) for s in out], [("hum", True), ("ruído", True), ("tosse", True), ("Fechamos o orçamento", False)])
+
+    def test_invented_phrases_are_not_sounds(self):
+        seg = lambda t: {"start": 0, "end": 1, "text": t, "no_speech": 0.1, "logprob": -0.2}
+        self.assertEqual(meeting.live_segments([seg("Thank you."), seg("Legendas pela comunidade Amara.org"), seg(meeting.LIVE_SEED)]), [])
+
+    def test_the_provisional_text_never_shows_sounds(self):
+        seg = {"start": 0, "end": 1, "text": "Hum-hum.", "no_speech": 0.1, "logprob": -0.2}
+        self.assertEqual(meeting.live_segments([seg], "pt", True), [])
+
     def test_background_noise_is_not_boosted(self):
         # ruído de fundo amplificado vira "fala" para o Whisper: o filme de "eai eai eai" sem ninguém falando
         self.assertEqual(meeting.speech_gain(0.003, 0.05), 1.0)
