@@ -210,40 +210,46 @@
   // Medido numa chamada real de quatro pessoas: o quadro de quem está calado não tem nenhuma animação; o de quem
   // fala tem (anel, indicador de voz); e o do próprio usuário acende só quando ele fala. Pergunta ao navegador
   // quais animações estão rodando no quadro, sem depender de nome de classe do Meet (que muda de versão).
-  const HISTORY = 5; // leituras de 250 ms: pouco mais de 1 s de memória
+  // Ajustado numa conversa real de 5 quadros, tendo as legendas do Google como resposta certa (anima quando fala em
+  // ~75% das leituras, não em 100%): memória de 2,5 s com as leituras recentes pesando mais, e troca rápida quando
+  // outro passa à frente. Esperar duas confirmações atrasava a troca e rotulava o começo da fala com a pessoa
+  // anterior. Nessa conversa: 93% certo e 5% errado, contra 79% e 11% antes (86% e 11% contra 69% e 19% numa
+  // metade que o ajuste nunca viu).
+  const HISTORY = 10; // leituras de 250 ms
+  const DECAY = 0.8; // cada leitura mais antiga pesa 0,8 da seguinte
+  const MIN_ACTIVITY = 0.3; // abaixo disso ninguém (além de mim) está falando
+  const KEEP_ACTIVITY = 0.3; // quem já falava só continua se ainda tem isto
+  const SWITCH_MARGIN = 0.15; // quanto outro precisa passar de quem já falava para tomar a vez
+  const ME_MARGIN = 0.4; // se o meu quadro anima bem mais que o melhor dos outros, sou eu falando
   const history = new WeakMap(); // quadro -> 1 (com animação) ou 0, por leitura
   const animating = (el) => el.getAnimations({ subtree: true }).some((a) => a.playState === "running");
+  // Divide pelo peso da janela inteira, e não só das leituras que já existem: quadro recém-visto com uma única
+  // leitura "animando" não pode valer 100%. Leitura que falta conta como "sem animação".
+  let FULL = 0;
+  for (let i = 0, w = 1; i < HISTORY; i++, w *= DECAY) FULL += w;
   const activity = (el) => {
     const h = history.get(el) || [];
-    return h.length ? h.reduce((a, b) => a + b, 0) / h.length : 0;
+    let weight = 1;
+    let sum = 0;
+    for (let i = h.length - 1; i >= 0; i--) {
+      sum += h[i] * weight;
+      weight *= DECAY;
+    }
+    return sum / FULL;
   };
-  let current = ""; // quem estava falando: só troca com prova clara, um piscar de outro quadro não rouba a vez
-  let challenger = { name: "", ticks: 0 };
+  let current = ""; // quem estava falando
   let sent = { name: "", at: 0 };
 
   function pickSpeaker(others, me) {
     const scored = others.map((p) => ({ name: p.name, s: activity(p.el) })).sort((a, b) => b.s - a.s);
     const best = scored[0];
-    if (best.s < 0.5) {
-      challenger = { name: "", ticks: 0 };
-      return ""; // ninguém além de mim tem animação: não há o que dizer
-    }
-    if (me && activity(me.el) > best.s + 0.2) return ""; // sou eu falando mais forte: não vira nome de outra pessoa
+    if (best.s < MIN_ACTIVITY) return ""; // ninguém além de mim tem animação: não há o que dizer
+    if (me && activity(me.el) > best.s + ME_MARGIN) return ""; // sou eu falando mais forte: não vira nome de outra pessoa
     const cur = scored.find((x) => x.name === current);
     // Quem já falava continua, a menos que outro passe dele com folga.
-    if (cur && cur.s >= 0.4 && best.name !== current && best.s < cur.s + 0.4) return current;
-    if (best.name === current || !current) {
-      current = best.name;
-      challenger = { name: "", ticks: 0 };
-      return current;
-    }
-    challenger = challenger.name === best.name ? { name: best.name, ticks: challenger.ticks + 1 } : { name: best.name, ticks: 1 };
-    if (challenger.ticks >= 2) {
-      current = best.name;
-      challenger = { name: "", ticks: 0 };
-      return current;
-    }
-    return cur && cur.s >= 0.4 ? current : "";
+    if (cur && cur.s >= KEEP_ACTIVITY && best.name !== current && best.s < cur.s + SWITCH_MARGIN) return current;
+    current = best.name;
+    return current;
   }
 
   function tickTiles() {
@@ -309,7 +315,6 @@
       seen = { name: "", text: "", at: 0 };
       myName = "";
       current = "";
-      challenger = { name: "", ticks: 0 };
       sent = { name: "", at: 0 };
       selfId = "";
       soloReads = 0;
