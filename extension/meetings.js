@@ -28,10 +28,8 @@ async function patchMeeting(id, patch) {
   return next;
 }
 
-function setBadge(text, color) {
-  chrome.action.setBadgeText({ text });
-  if (color) chrome.action.setBadgeBackgroundColor({ color });
-}
+// A extensão não usa selo no ícone: o painel e as telas dizem o estado. Limpa o que uma versão antiga deixou.
+chrome.action.setBadgeText({ text: "" });
 
 // ---- documento offscreen ------------------------------------------------------
 
@@ -281,7 +279,6 @@ async function discardMeeting() {
   await chrome.storage.local.remove(MEETING_PREFIX + rec.id); // a reunião criada ao começar vai junto
   await chrome.storage.session.remove([LIVE_KEY, NOTES_KEY, GOAL_KEY]);
   await setRec(null);
-  setBadge("", null);
   logRec("gravação descartada pela pessoa");
   return { ok: true, data: {} };
 }
@@ -339,7 +336,6 @@ async function stopMeeting() {
   } finally {
     stopping = false;
   }
-  setBadge("…", "#3347ff");
   processMeeting(rec.id).catch((err) => console.warn("[escuta] reunião:", err));
   return { ok: true, data: { id: rec.id } };
 }
@@ -485,7 +481,6 @@ async function processMeetingNow(id) {
   const blob = await RecDB.blob(id, "audio/webm");
   if (!blob.size) {
     await patchMeeting(id, { status: "failed", error: "A gravação ficou vazia." });
-    setBadge("", null);
     return;
   }
 
@@ -495,7 +490,6 @@ async function processMeetingNow(id) {
     // O áudio continua guardado: "Tentar de novo" na página de transcrições refaz daqui.
     logRec(`servidor: falhou (${result.message || result.code})`);
     await patchMeeting(id, { status: "failed", error: result.message || result.code, errorCode: result.code });
-    setBadge("!", "#b42318");
     return;
   }
 
@@ -510,7 +504,6 @@ async function processMeetingNow(id) {
   logRec(`transcrição pronta: ${result.data.segments.length} trechos`);
   await RecDB.drop(id).catch(() => {}); // a transcrição já está salva; o áudio não precisa mais ficar
   await writeMinutes(id, entry.template);
-  setBadge("✓", "#1a8f5a");
 }
 
 // ---- começar sozinho depois da permissão do microfone -------------------------------------------
@@ -764,13 +757,8 @@ function meetingHandle(msg) {
         if (rec && canRecord() && !(await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] })).length) {
           const lost = rec;
           await setRec(null);
-          setBadge("", null);
           await recoverOrphans(lost);
           rec = null;
-        }
-        if (!rec) {
-          const badge = await chrome.action.getBadgeText({});
-          if (badge === "✓" || badge === "!") setBadge("", null); // quem abre o popup já viu
         }
         if (rec?.stopAt && Date.now() >= rec.stopAt && !stopping) stopMeeting().catch(() => {});
         return { ok: true, data: { canRecord: canRecord(), rec } };
@@ -814,7 +802,7 @@ function meetingHandle(msg) {
         if (!entry) return fail("gone", "Reunião apagada.");
         if (entry.segments?.length && !entry.provisional) {
           // O áudio já foi transcrito; só a ata falhou.
-          withKeepAlive(() => writeMinutes(msg.id, entry.template)).then(() => setBadge("✓", "#1a8f5a"));
+          withKeepAlive(() => writeMinutes(msg.id, entry.template)).catch(() => {});
         } else {
           processMeeting(msg.id).catch((err) => console.warn("[escuta] reunião:", err));
         }
