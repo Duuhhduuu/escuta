@@ -410,6 +410,36 @@ async function writeMinutes(id, template) {
 
 const running = new Set(); // reuniões sendo processadas agora, para "Tentar de novo" duas vezes não duplicar
 
+// Nada deve exigir "Tentar de novo": o que dá para refazer sozinho é refeito (o servidor ainda subindo, o navegador
+// fechado no meio, o modelo de resumo que não respondeu). Cada reunião tem até AUTO_TRIES tentativas automáticas.
+const AUTO_TRIES = 3;
+const RETRY_MS = [15_000, 60_000, 180_000];
+// Erros que esperar não resolve (falta ffmpeg ou Whisper, áudio ilegível): não adianta tentar de novo.
+const NO_RETRY = new Set(["bad_audio", "ffmpeg_missing", "whisper_missing", "unsupported"]);
+const hasText = (m) => (m?.segments || []).some((s) => s.text);
+
+// A ata, com nova tentativa sozinha se o modelo de resumo não responder.
+async function writeMinutesAuto(id, template) {
+  const res = await writeMinutes(id, template);
+  if (res.ok || res.code === "empty" || res.code === "gone") return res;
+  const entry = await getMeeting(id);
+  const tries = entry?.minutesTries || 0;
+  if (entry && tries < AUTO_TRIES) {
+    await patchMeeting(id, { minutesTries: tries + 1, minutesError: `${res.message || "O modelo de resumo não respondeu."} Tentando de novo sozinho em instantes.` });
+    setTimeout(() => withKeepAlive(() => writeMinutesAuto(id, template)).catch(() => {}), RETRY_MS[tries]);
+  }
+  return res;
+}
+
+// A ata a partir do texto ao vivo que já estava salvo na reunião, com o nome de quem falou e sem o eco do microfone.
+async function finishFromLiveText(id, entry) {
+  const segments = nameSpeakers(dropEcho(entry.segments), entry.speakers, entry.me);
+  await patchMeeting(id, { status: "processing", stage: "minutes", progress: 1, error: null, provisional: false, interrupted: false, segments });
+  logRec(`ata pelo texto ao vivo (${segments.length} trechos)`);
+  await writeMinutesAuto(id, entry.template);
+  await RecDB.drop(id).catch(() => {}); // sem refazer a transcrição, o áudio não precisa mais ficar
+}
+
 async function processMeeting(id) {
   if (running.has(id)) return;
   running.add(id);
@@ -474,13 +504,11 @@ async function processMeetingNow(id) {
   const entry = await getMeeting(id);
   if (!entry) return;
 
-  if (liveIsEnough(entry)) {
+  // Gravação cortada no meio (navegador fechado, extensão recarregada): o texto ao vivo pode não ter o final, e o
+  // áudio, que ficou no disco, tem. Então transcreve o áudio em vez de confiar só no texto.
+  if (!entry.interrupted && liveIsEnough(entry)) {
     // A transcrição ao vivo já ficou pronta durante a reunião, com o nome de quem falou: vai direto para a ata.
-    const segments = nameSpeakers(dropEcho(entry.segments), entry.speakers, entry.me);
-    await patchMeeting(id, { status: "processing", stage: "minutes", progress: 1, error: null, provisional: false, segments });
-    logRec(`ata pelo texto ao vivo (${segments.length} trechos)`);
-    await writeMinutes(id, entry.template);
-    await RecDB.drop(id).catch(() => {}); // sem refazer a transcrição, o áudio não precisa mais ficar
+    await finishFromLiveText(id, entry);
     return;
   }
 
@@ -488,6 +516,11 @@ async function processMeetingNow(id) {
 
   const blob = await RecDB.blob(id, "audio/webm");
   if (!blob.size) {
+    // Sem áudio (já descartado): o texto ao vivo salvo ainda dá a ata. Nada se perde.
+    if (hasText(entry)) {
+      await finishFromLiveText(id, entry);
+      return;
+    }
     await patchMeeting(id, { status: "failed", error: "A gravação ficou vazia." });
     return;
   }
@@ -495,8 +528,19 @@ async function processMeetingNow(id) {
   const settings = await getSettings();
   const result = await transcribeMeeting(blob, settings, (stage, progress) => patchMeeting(id, { stage, progress }));
   if (!result.ok) {
-    // O áudio continua guardado: "Tentar de novo" na página de transcrições refaz daqui.
     logRec(`servidor: falhou (${result.message || result.code})`);
+    const tries = entry.autoTries || 0;
+    if (tries < AUTO_TRIES && !NO_RETRY.has(result.code)) {
+      // Servidor ainda subindo ou ocupado: tenta de novo sozinho, em vez de deixar a pessoa clicar.
+      await patchMeeting(id, { status: "processing", stage: "retry", progress: 0, error: null, autoTries: tries + 1 });
+      setTimeout(() => processMeeting(id).catch(() => {}), RETRY_MS[tries]);
+      return;
+    }
+    // Esgotou as tentativas: o texto ao vivo, se há, vira a ata mesmo assim. O áudio continua guardado.
+    if (hasText(entry)) {
+      await finishFromLiveText(id, entry);
+      return;
+    }
     await patchMeeting(id, { status: "failed", error: result.message || result.code, errorCode: result.code });
     return;
   }
@@ -506,12 +550,13 @@ async function processMeetingNow(id) {
     segments: nameSpeakers(result.data.segments, entry.speakers, entry.me),
     duration: result.data.duration || entry.duration,
     mic: result.data.mic,
+    interrupted: false,
     stage: "minutes",
     progress: 1,
   });
   logRec(`transcrição pronta: ${result.data.segments.length} trechos`);
   await RecDB.drop(id).catch(() => {}); // a transcrição já está salva; o áudio não precisa mais ficar
-  await writeMinutes(id, entry.template);
+  await writeMinutesAuto(id, entry.template);
 }
 
 // ---- começar sozinho depois da permissão do microfone -------------------------------------------
@@ -561,18 +606,35 @@ async function recoverOrphans(lost = null) {
   // cortado (navegador fechado, extensão recarregada). Sem isso o popup ficaria para sempre
   // em "gerando a ata" e a pessoa não conseguiria gravar de novo.
   for (const entry of Object.values(known)) {
-    if (entry?.kind === "meeting" && entry.status === "recording" && !running.has(entry.id)) {
-      // Gravação cortada no meio: o texto ao vivo até ali está salvo, e o áudio, se ficou no disco, ainda dá para transcrever.
-      await patchMeeting(entry.id, {
-        status: "failed",
-        error: "A gravação foi interrompida (o navegador fechou?). O texto até ali ficou salvo, e o que foi gravado ainda pode ser transcrito.",
-      });
-    }
-    if (entry?.kind === "meeting" && entry.status === "processing" && !running.has(entry.id)) {
-      await patchMeeting(entry.id, {
-        status: "failed",
-        error: "O processamento foi interrompido (o navegador fechou?). Dá para tentar de novo.",
-      });
+    if (entry?.kind !== "meeting" || running.has(entry.id)) continue;
+    const cut = entry.status === "recording" || entry.status === "processing";
+    if (cut) {
+      // Gravação cortada ou trabalho interrompido (navegador fechado, extensão recarregada). O texto ao vivo e o áudio
+      // estão salvos, então retoma sozinho em vez de pedir um clique em "Tentar de novo".
+      const tries = entry.autoTries || 0;
+      if (tries < AUTO_TRIES) {
+        await patchMeeting(entry.id, {
+          status: "processing",
+          stage: "upload",
+          progress: 0,
+          error: null,
+          interrupted: entry.status === "recording" || Boolean(entry.interrupted),
+          autoTries: tries + 1,
+        });
+        processMeeting(entry.id).catch((err) => console.warn("[escuta] reunião:", err));
+      } else if (hasText(entry)) {
+        // Esgotou as tentativas, mas o texto ao vivo está salvo: vira a ata mesmo assim. Nada se perde.
+        running.add(entry.id);
+        finishFromLiveText(entry.id, entry).catch(() => {}).finally(() => running.delete(entry.id));
+      } else {
+        await patchMeeting(entry.id, {
+          status: "failed",
+          error: "O processamento foi interrompido e não deu para retomar sozinho. Dá para tentar de novo.",
+        });
+      }
+    } else if (entry.status === "done" && !entry.minutes && hasText(entry) && (entry.minutesTries || 0) < AUTO_TRIES && !/^Nenhuma fala/.test(entry.minutesError || "")) {
+      // A ata não saiu (o modelo de resumo estava fora do ar): tenta de novo sozinho.
+      withKeepAlive(() => writeMinutesAuto(entry.id, entry.template)).catch(() => {});
     }
   }
 
@@ -824,9 +886,10 @@ function meetingHandle(msg) {
       return (async () => {
         const entry = await getMeeting(msg.id);
         if (!entry) return fail("gone", "Reunião apagada.");
+        await patchMeeting(msg.id, { autoTries: 0, minutesTries: 0 }); // um clique recomeça a contagem das tentativas sozinhas
         if (entry.segments?.length && !entry.provisional) {
           // O áudio já foi transcrito; só a ata falhou.
-          withKeepAlive(() => writeMinutes(msg.id, entry.template)).catch(() => {});
+          withKeepAlive(() => writeMinutesAuto(msg.id, entry.template)).catch(() => {});
         } else {
           processMeeting(msg.id).catch((err) => console.warn("[escuta] reunião:", err));
         }
