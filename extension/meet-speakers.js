@@ -110,18 +110,33 @@
   // Texto de botão e de menu do quadro ("Planos de fundo e efeitos", "Fixar", "Silenciar"...) não é nome de ninguém.
   const UI_LABEL = /planos? de fundo|efeitos?|backgrounds?|effects?|fixar|\bpin(ned)?\b|silenciar|\bmute|remover|remove|mais op[cç][õo]es|more options|apresent|present|tela cheia|full ?screen|ajustar|adjust|aplicar|apply|desativar|ativar|turn (on|off)|c[âa]mera|camera|microfone|microphone|legenda|caption|sinalizar|flag|reconect|conectando|aguardando|waiting/i;
 
+  // Nome de gente é curto e não é frase: sem ponto final, sem mais de cinco palavras e sem falar do que
+  // o Meet está fazendo ("As pessoas ainda podem ver seu vídeo completo.").
+  const SENTENCE = /pessoas|podem ver|ainda|v[ií]deo|vendo|compartilh|voc[eê] est[aá]|you are|can see|everyone|ningu[eé]m|reuni[aã]o/i;
+  function looksLikeName(text) {
+    if (text.length < 2 || text.length > 40) return false;
+    if (/[.!?:;]$/.test(text) || /\d{4,}/.test(text)) return false;
+    if (text.split(/\s+/).length > 5) return false;
+    return !ICON.test(text) && !UI_LABEL.test(text) && !SENTENCE.test(text);
+  }
+
   function tileName(el) {
     const named = el.querySelector("[data-self-name]")?.textContent?.trim();
-    if (named && !UI_LABEL.test(named)) return named;
-    // Só texto que não esteja dentro de um botão ou menu.
+    if (named && looksLikeName(named)) return named;
+    // Só texto que não esteja dentro de um botão ou menu. Entre os que parecem nome vale o mais baixo no
+    // quadro, que é onde o Meet escreve o nome; avisos e dicas ficam em cima ou no meio.
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let best = null;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const text = node.textContent.trim();
-      if (text.length < 2 || text.length > 60 || ICON.test(text) || UI_LABEL.test(text)) continue;
+      if (!looksLikeName(text)) continue;
       if (node.parentElement?.closest('button, [role="button"], [role="menu"], [role="menuitem"], [role="tooltip"]')) continue;
-      return text;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const bottom = range.getBoundingClientRect().bottom;
+      if (!best || bottom > best.bottom + 1) best = { text, bottom };
     }
-    return "";
+    return best?.text || "";
   }
 
   // Quem grava aparece como "Você" (ou com o nome, no quadrinho), e o próprio vídeo é espelhado.
