@@ -10,10 +10,10 @@
   const SELF = /^(voc[eê]|you|tu|usted)$/i; // o Meet chama quem grava de "Você": isso já é a pista do microfone
   const CAPTIONS = /caption|legenda|subt[ií]tulo|sous-titre|untertitel/i;
   const CC_BUTTON = /caption|legenda|subt[ií]tulo|sous-titre|untertitel/i;
-  const POLL_MS = 500;
+  const POLL_MS = 250;
   const REPEAT_MS = 700; // enquanto a mesma pessoa fala, reafirma de tempos em tempos
 
-  let useCaptions = true; // ligar as legendas (escondidas) em reunião com várias pessoas; a pessoa pode desligar no popup
+  let useCaptions = false; // opcional: nome pelas legendas do Meet (escondidas) em vez da animação do quadro
   let running = false;
   let timer = 0;
   let tries = 0;
@@ -114,7 +114,9 @@
   const SENTENCE = /pessoas|podem ver|ainda|v[ií]deo|vendo|compartilh|voc[eê] est[aá]|you are|can see|everyone|ningu[eé]m|reuni[aã]o/i;
   function looksLikeName(text) {
     if (text.length < 2 || text.length > 40) return false;
-    if (/[.!?:;]$/.test(text) || /\d{4,}/.test(text)) return false;
+    if (/[!?:;]$/.test(text) || /\d{4,}/.test(text)) return false;
+    // Ponto no fim é frase, a não ser que seja inicial ou abreviatura de nome ("Renan F.", "Carlos Jr.").
+    if (text.endsWith(".") && !/(^|\s)(\p{Lu}|Jr|Sr|Dr|Dra|Sra|Prof)\.$/u.test(text)) return false;
     if (text.split(/\s+/).length > 5) return false;
     return !ICON.test(text) && !UI_LABEL.test(text) && !SENTENCE.test(text);
   }
@@ -138,8 +140,56 @@
     return best?.text || "";
   }
 
+  // ---- o meu quadro: o que acende quando só a minha voz está no ar ----------------------------------------------
+  // O hook da página manda o áudio do meu microfone ("voce") e o dos outros ("outros"), separados. Nos instantes em que
+  // só o meu microfone tem voz, o quadro com animação rodando é o meu. Vale com câmera ligada ou desligada, em reunião
+  // de 2 ou de 20 pessoas, sem depender de nome, de posição do quadro nem de nada guardado de outra reunião.
+  const MIC_ON = 0.012; // acima disso o meu microfone tem voz
+  const OTHERS_OFF = 0.004; // abaixo disso ninguém mais está falando
+  const MIN_SOLO = 8; // leituras só com a minha voz (2 s) antes de dar o quadro como meu
+  const mic = { voce: 0, outros: 0, at: 0 };
+  const soloHits = new Map(); // id do quadro -> leituras em que ele animou enquanto só eu falava
+  let soloReads = 0;
+  let selfId = ""; // o quadro que descobri ser o meu
+
+  const rmsOf = (buffer) => {
+    const pcm = new Int16Array(buffer);
+    let sum = 0;
+    for (let i = 0; i < pcm.length; i++) sum += (pcm[i] / 32768) ** 2;
+    return pcm.length ? Math.sqrt(sum / pcm.length) : 0;
+  };
+
+  window.addEventListener("message", (event) => {
+    const d = event.data;
+    if (event.source !== window || !d?.escutaMeet || d.from !== "hook" || d.type !== "audio") return;
+    mic.voce = rmsOf(d.voce);
+    mic.outros = rmsOf(d.outros);
+    mic.at = Date.now();
+  });
+
+  // O áudio dos outros está calado (e o hook está mandando): então quem anima é só eu, e ninguém mais recebe nome.
+  const onlyMeTalking = () => Date.now() - mic.at < 700 && mic.outros <= OTHERS_OFF;
+
+  const tileId = (el) => el.getAttribute("data-participant-id") || "";
+
+  function learnSelf(named) {
+    if (Date.now() - mic.at > 700 || mic.voce < MIC_ON || mic.outros > OTHERS_OFF) return; // não é só a minha voz
+    soloReads++;
+    for (const p of named) {
+      const id = tileId(p.el);
+      if (id && animating(p.el)) soloHits.set(id, (soloHits.get(id) || 0) + 1);
+    }
+    if (soloReads < MIN_SOLO) return;
+    const ranked = [...soloHits.entries()].sort((a, b) => b[1] - a[1]);
+    const [bestId, best] = ranked[0] || [];
+    const second = ranked[1]?.[1] || 0;
+    // O quadro que animou em quase todas as leituras e bem mais que o segundo.
+    if (bestId && best / soloReads >= 0.6 && second / soloReads <= 0.4) selfId = bestId;
+  }
+
   // Quem grava aparece como "Você" (ou com o nome, no quadrinho), e o próprio vídeo é espelhado.
   function isSelf(el, name, all) {
+    if (selfId) return tileId(el) === selfId; // descoberto pela minha voz: vale mais que qualquer palpite abaixo
     if (SELF.test(name) || /\((voc[eê]|you)\)/i.test(name)) return true;
     const video = el.querySelector("video");
     if (video && /^matrix\(-1,/.test(getComputedStyle(video).transform)) return true;
@@ -156,9 +206,56 @@
   let myName = "";
   let groupTicks = 0; // leituras seguidas com duas ou mais outras pessoas na chamada
 
+  // ---- quem fala: o quadro com animação rodando --------------------------------------------------------------
+  // Medido numa chamada real de quatro pessoas: o quadro de quem está calado não tem nenhuma animação; o de quem
+  // fala tem (anel, indicador de voz); e o do próprio usuário acende só quando ele fala. Pergunta ao navegador
+  // quais animações estão rodando no quadro, sem depender de nome de classe do Meet (que muda de versão).
+  const HISTORY = 5; // leituras de 250 ms: pouco mais de 1 s de memória
+  const history = new WeakMap(); // quadro -> 1 (com animação) ou 0, por leitura
+  const animating = (el) => el.getAnimations({ subtree: true }).some((a) => a.playState === "running");
+  const activity = (el) => {
+    const h = history.get(el) || [];
+    return h.length ? h.reduce((a, b) => a + b, 0) / h.length : 0;
+  };
+  let current = ""; // quem estava falando: só troca com prova clara, um piscar de outro quadro não rouba a vez
+  let challenger = { name: "", ticks: 0 };
+  let sent = { name: "", at: 0 };
+
+  function pickSpeaker(others, me) {
+    const scored = others.map((p) => ({ name: p.name, s: activity(p.el) })).sort((a, b) => b.s - a.s);
+    const best = scored[0];
+    if (best.s < 0.5) {
+      challenger = { name: "", ticks: 0 };
+      return ""; // ninguém além de mim tem animação: não há o que dizer
+    }
+    if (me && activity(me.el) > best.s + 0.2) return ""; // sou eu falando mais forte: não vira nome de outra pessoa
+    const cur = scored.find((x) => x.name === current);
+    // Quem já falava continua, a menos que outro passe dele com folga.
+    if (cur && cur.s >= 0.4 && best.name !== current && best.s < cur.s + 0.4) return current;
+    if (best.name === current || !current) {
+      current = best.name;
+      challenger = { name: "", ticks: 0 };
+      return current;
+    }
+    challenger = challenger.name === best.name ? { name: best.name, ticks: challenger.ticks + 1 } : { name: best.name, ticks: 1 };
+    if (challenger.ticks >= 2) {
+      current = best.name;
+      challenger = { name: "", ticks: 0 };
+      return current;
+    }
+    return cur && cur.s >= 0.4 ? current : "";
+  }
+
   function tickTiles() {
     const all = tiles();
     const named = all.map((el) => ({ el, name: tileName(el) })).filter((p) => p.name);
+    for (const p of named) {
+      const h = history.get(p.el) || [];
+      h.push(animating(p.el) ? 1 : 0);
+      if (h.length > HISTORY) h.shift();
+      history.set(p.el, h);
+    }
+    learnSelf(named);
     const mine = named.find((p) => isSelf(p.el, p.name, all) && bare(p.name) && !SELF.test(bare(p.name)));
     if (mine && bare(mine.name) !== myName) {
       myName = bare(mine.name);
@@ -166,17 +263,22 @@
     }
     const others = named.filter((p) => !isSelf(p.el, p.name, all));
     groupTicks = others.length >= 2 ? groupTicks + 1 : 0;
-    // Só uma outra pessoa na chamada: é ela quem fala. solo: se todos os avisos forem assim, a chamada é de dois
-    // e toda fala dos outros leva o nome dela.
-    if (others.length === 1) send({ type: "meet-speaker", name: others[0].name.slice(0, 80), t: Date.now(), solo: true });
+    let name = "";
+    if (others.length === 1) name = others[0].name; // só uma outra pessoa na chamada: é ela quem fala
+    else if (others.length >= 2 && !useCaptions && !onlyMeTalking()) name = pickSpeaker(others, named.find((p) => isSelf(p.el, p.name, all)));
+    if (!name) return;
+    const now = Date.now();
+    if (name === sent.name && now - sent.at < REPEAT_MS) return; // não repete a cada leitura
+    sent = { name, at: now };
+    // solo: só havia uma outra pessoa na chamada. Se todos os avisos forem assim, a chamada é de dois e toda fala
+    // dos outros leva o nome dela.
+    send({ type: "meet-speaker", name: name.slice(0, 80), t: now, solo: others.length === 1 });
   }
 
   function tick() {
     tickTiles();
-    // Reunião com várias pessoas: o movimento do quadro não diz de forma confiável quem fala (mexe por outros
-    // motivos e errava, principalmente no começo). Quem atribui cada fala a uma pessoa é o próprio Google, nas
-    // legendas. Elas só são ligadas (e escondidas da tela) quando há mais de duas pessoas; sem elas, a fala
-    // fica como "Participantes" em vez de receber um nome errado.
+    // Opcional: com a opção ligada, em reunião com várias pessoas o nome vem das legendas do Meet (escondidas da tela),
+    // em vez da animação do quadro.
     if (!useCaptions || groupTicks < 2) return;
     const box = region();
     if (!box) {
@@ -206,6 +308,12 @@
       tries = 0;
       seen = { name: "", text: "", at: 0 };
       myName = "";
+      current = "";
+      challenger = { name: "", ticks: 0 };
+      sent = { name: "", at: 0 };
+      selfId = "";
+      soloReads = 0;
+      soloHits.clear();
       timer = setInterval(tick, POLL_MS);
     }
   }
@@ -214,9 +322,9 @@
     if (msg?.type !== "meet-speakers") return;
     if (msg.action !== "start") return setRunning(false);
     chrome.storage.sync
-      .get({ speakerNames: true })
+      .get({ speakerNames: false })
       .then(({ speakerNames }) => {
-        useCaptions = speakerNames !== false;
+        useCaptions = speakerNames === true;
         setRunning(true);
       })
       .catch(() => setRunning(true));
