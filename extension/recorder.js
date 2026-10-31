@@ -18,7 +18,8 @@
     minWindowMs: 1800, // janela mais curta que isso espera mais fala, a não ser que haja pausa longa
     pauseMs: 450, // pausa que fecha uma frase
     maxWindowMs: 8000, // ninguém espera mais que isso para ver texto
-    minVoiceMs: 500, // menos fala que isso na janela é tosse ou tecla: descarta
+    minVoiceMs: 200, // menos fala que isso na janela é tecla ou estalo: descarta. "Tá", "é", "não" e "sim" cabem aqui
+    minPartialVoiceMs: 500, // o provisório é mais exigente: um palpite sobre meia palavra só atrapalha
     dropSilenceMs: 1500,
     maxQueue: 60, // servidor mais lento que a fala: só então descarta as mais velhas
     timeoutMs: 60_000,
@@ -100,7 +101,7 @@
         reset();
       } else if (voiceMs >= LIVE.minVoiceMs && ((silentMs >= LIVE.pauseMs && ms >= LIVE.minWindowMs) || ms >= LIVE.maxWindowMs)) {
         flush();
-      } else if (partial && voiceMs >= LIVE.minVoiceMs && silentMs < LIVE.pauseMs && clock - lastPartial >= LIVE.partialMs) {
+      } else if (partial && voiceMs >= LIVE.minPartialVoiceMs && silentMs < LIVE.pauseMs && clock - lastPartial >= LIVE.partialMs) {
         lastPartial = clock;
         partial.send(snapshot());
       }
@@ -114,7 +115,8 @@
     const abort = new AbortController();
     const queue = [];
     const lastText = { voce: "", outros: "" };
-    const lastLine = { voce: "", outros: "" }; // a mesma frase de novo, sem pausa entre elas, é o Whisper repetindo
+    // A mesma frase de novo, colada na anterior, é o Whisper repetindo. Mais de 3 s depois é a pessoa repetindo ("Sim." ... "Sim.").
+    const lastLine = { voce: { text: "", end: -99 }, outros: { text: "", end: -99 } };
     const plain = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     let busy = false;
     let failing = false;
@@ -136,8 +138,12 @@
 
     async function send(job) {
       const all = await request(job, AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.timeoutMs)]));
-      const lines = all.filter((l) => plain(l.text) !== lastLine[job.who]);
-      if (lines.length) lastLine[job.who] = plain(lines[lines.length - 1].text);
+      const before = lastLine[job.who];
+      const lines = all.filter((l) => !(plain(l.text) === before.text && l.start - before.end < 3));
+      if (lines.length) {
+        const tail = lines[lines.length - 1];
+        lastLine[job.who] = { text: plain(tail.text), end: tail.end };
+      }
       if (lines.length) {
         const said = lines.filter((l) => !l.sound).map((l) => l.text); // "hum" e "ruído" não servem de dica ao Whisper
         if (said.length) lastText[job.who] = `${lastText[job.who]} ${said.join(" ")}`.trim().slice(-220);
