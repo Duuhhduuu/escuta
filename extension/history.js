@@ -94,7 +94,7 @@ function matches(entry, terms) {
 const WHO = { voce: "Você", outros: "Participantes" };
 
 const transcriptLines = (m) =>
-  (m.segments || []).filter((s) => s.text).map((s) => ({ at: stamp(s.start), who: s.speaker || WHO[s.who] || s.who, text: s.text }));
+  (m.segments || []).filter((s) => s.text).map((s) => ({ at: stamp(s.start), who: s.speaker || WHO[s.who] || s.who, me: s.who === "voce", text: s.text }));
 
 function meetingMatches(m, terms) {
   const hay = fold(
@@ -590,7 +590,7 @@ function meetingDetail(m, terms) {
   const list = el("div", "transcript");
   for (const line of lines) {
     const row = el("p", "line");
-    row.append(el("span", "at", line.at), el("b", line.who === "Você" ? "who who--me" : "who", line.who));
+    row.append(el("span", "at", line.at), el("b", line.me ? "who who--me" : "who", line.who));
     const said = el("span", "said");
     said.append(highlighted(line.text, terms));
     row.append(said);

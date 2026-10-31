@@ -6,6 +6,7 @@ const MEETING_PREFIX = "m:";
 const REC_KEY = "rec"; // gravação em andamento; storage.session sobrevive ao service worker dormir
 const LIVE_KEY = "live"; // texto ao vivo da gravação em andamento: { id, lines, error, lag }
 const NOTES_KEY = "notes"; // o que a pessoa anota no painel: { id, text }
+const SELF_KEY = "selfname"; // o seu nome, lido do quadro da chamada: { id, name }
 const SPEAKERS_KEY = "speakers"; // quem falou na chamada, lido das legendas do Meet: { id, events: [{ name, t }] }
 const GOAL_KEY = "goal"; // objetivo da reunião, escrito antes ou durante: { id, text }
 const LIVE_LINES_MAX = 5000;
@@ -166,7 +167,7 @@ async function startMeeting({ streamId, tabId, title, template, mic, source, goa
     }
   }
   // Nomes de quem fala: só no Google Meet, que mostra o nome nas legendas.
-  await chrome.storage.session.set({ [SPEAKERS_KEY]: { id, events: [] } });
+  await chrome.storage.session.set({ [SPEAKERS_KEY]: { id, events: [] }, [SELF_KEY]: { id, name: "" } });
   const onMeet = await chrome.tabs.get(tabId).then((t) => /^https:\/\/meet\.google\.com\//.test(t.url || ""), () => false);
   if (onMeet) chrome.tabs.sendMessage(tabId, { type: "meet-speakers", action: "start" }).catch(() => {});
   const startedAt = Date.now();
@@ -302,6 +303,10 @@ async function stopMeeting() {
     const notes = written?.id === rec.id ? String(written.text || "").trim() : "";
     const goalWritten = (await chrome.storage.session.get(GOAL_KEY))[GOAL_KEY];
     const goal = goalWritten?.id === rec.id ? String(goalWritten.text || "").trim() : "";
+    // O nome que a pessoa escreveu no popup vale mais que o lido do quadro, que pode errar.
+    const typed = String((await chrome.storage.sync.get({ myName: "" })).myName || "").trim();
+    const seen = (await chrome.storage.session.get(SELF_KEY))[SELF_KEY];
+    const me = (typed || (seen?.id === rec.id ? seen.name : "") || "").slice(0, 80);
     const heard = (await chrome.storage.session.get(SPEAKERS_KEY))[SPEAKERS_KEY];
     // [segundo desde o início, nome]: é o que cruza com o horário de cada trecho da transcrição
     const speakers = heard?.id === rec.id ? heard.events.map((e) => [Math.round(((e.t - rec.startedAt) / 1000) * 10) / 10, e.name]) : [];
@@ -322,6 +327,7 @@ async function stopMeeting() {
       notes,
       goal,
       speakers,
+      me,
       status: "processing",
       stage: "upload",
       progress: 0,
@@ -423,10 +429,11 @@ async function processMeeting(id) {
 // uma janela em volta do trecho e fica com o nome que mais apareceu nela.
 const NAME_BEFORE = 1;
 const NAME_AFTER = 2.5;
-function nameSpeakers(segments, speakers) {
-  if (!speakers?.length) return segments;
+function nameSpeakers(segments, speakers, me = "") {
+  if (!speakers?.length && !me) return segments;
   return segments.map((seg) => {
-    if (seg.who !== "outros") return seg;
+    if (seg.who === "voce") return me ? { ...seg, speaker: me } : seg; // a sua fala leva o seu nome
+    if (seg.who !== "outros" || !speakers?.length) return seg;
     const count = new Map();
     for (const [t, name] of speakers) if (t >= seg.start - NAME_BEFORE && t <= seg.end + NAME_AFTER) count.set(name, (count.get(name) || 0) + 1);
     const best = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -466,7 +473,7 @@ async function processMeetingNow(id) {
 
   if (liveIsEnough(entry)) {
     // A transcrição ao vivo já ficou pronta durante a reunião, com o nome de quem falou: vai direto para a ata.
-    const segments = nameSpeakers(dropEcho(entry.segments), entry.speakers);
+    const segments = nameSpeakers(dropEcho(entry.segments), entry.speakers, entry.me);
     await patchMeeting(id, { status: "processing", stage: "minutes", progress: 1, error: null, provisional: false, segments });
     logRec(`ata pelo texto ao vivo (${segments.length} trechos)`);
     await writeMinutes(id, entry.template);
@@ -495,7 +502,7 @@ async function processMeetingNow(id) {
 
   await patchMeeting(id, {
     provisional: false,
-    segments: nameSpeakers(result.data.segments, entry.speakers),
+    segments: nameSpeakers(result.data.segments, entry.speakers, entry.me),
     duration: result.data.duration || entry.duration,
     mic: result.data.mic,
     stage: "minutes",
@@ -664,6 +671,13 @@ async function liveStatus({ error, lag, lost }) {
 
 // Pergunta sobre uma reunião. A conversa fica guardada na própria reunião (m.chat), então ao
 // reabrir ela continua lá. O servidor recebe a ata, as notas, a transcrição e as últimas trocas.
+async function addSelf({ name }) {
+  const rec = await getRec();
+  if (!rec || !name) return { ok: true };
+  await chrome.storage.session.set({ [SELF_KEY]: { id: rec.id, name: String(name).slice(0, 80) } });
+  return { ok: true };
+}
+
 async function addSpeaker({ name, t }) {
   const rec = await getRec();
   if (!rec || !name) return { ok: true };
@@ -716,6 +730,8 @@ function meetingHandle(msg) {
   switch (msg.type) {
     case "meet-speaker":
       return addSpeaker(msg);
+    case "meet-self":
+      return addSelf(msg);
     case "meeting-ask":
       return askMeeting(msg);
     case "meeting-goal":

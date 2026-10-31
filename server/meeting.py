@@ -115,8 +115,8 @@ def minutes_prompt(template, language="pt", notes=False, goal=""):
         "Use apenas o que está na transcrição e nas anotações. Não invente nomes, datas, números nem decisões.",
         "Mantenha nomes, números, datas e horários exatamente como foram ditos.",
         "Se uma seção não tiver conteúdo, escreva _Nada a registrar._",
-        "A transcrição marca quem fala: 'Você' é quem gravou e 'Participantes' são os outros. "
-        "Quando não houver nomes, use esses rótulos.",
+        "A transcrição marca quem fala, pelo nome da pessoa quando ele é conhecido. Sem nome, 'Você' é quem gravou "
+        "e 'Participantes' são os outros. Use os nomes da transcrição, principalmente em quem faz o quê.",
         "Os horários entre colchetes ([mm:ss]) vêm da transcrição; use-os onde o modelo pedir referência.",
     ]
     if notes:
@@ -180,7 +180,7 @@ def ask_prompt(language="pt"):
         "1. Use só o que está na ata, nas anotações e na transcrição. Se a resposta não estiver lá, "
         "diga que a reunião não trata disso. Não invente.\n"
         "2. Ao citar uma fala, indique o horário entre colchetes, como [12:40].\n"
-        "3. Na transcrição, 'Você' é quem gravou e 'Participantes' são os outros.\n"
+        "3. A transcrição marca quem fala pelo nome quando ele é conhecido; sem nome, 'Você' é quem gravou e 'Participantes' são os outros.\n"
         "4. Listas só quando a pergunta pedir (decisões, tarefas, prazos). Sem introdução do tipo \"Claro!\"."
     )
 

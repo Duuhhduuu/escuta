@@ -143,10 +143,20 @@
     watcher.observe(document.body, { attributes: true, attributeFilter: ["class", "style", "data-audio-level"], subtree: true });
   }
 
+  // O nome de quem grava, lido do próprio quadro (o Meet às vezes escreve "Nome (Você)").
+  const bare = (name) => name.replace(/\s*\((voc[eê]|you)\)\s*$/i, "").trim();
+  let myName = "";
+
   function tickTiles() {
     watch();
     const all = tiles();
-    const others = all.map((el) => ({ el, name: tileName(el) })).filter((p) => p.name && !isSelf(p.el, p.name, all));
+    const named = all.map((el) => ({ el, name: tileName(el) })).filter((p) => p.name);
+    const mine = named.find((p) => isSelf(p.el, p.name, all) && bare(p.name) && !SELF.test(bare(p.name)));
+    if (mine && bare(mine.name) !== myName) {
+      myName = bare(mine.name);
+      send({ type: "meet-self", name: myName.slice(0, 80) });
+    }
+    const others = named.filter((p) => !isSelf(p.el, p.name, all));
     let name = "";
     if (others.length === 1) {
       name = others[0].name; // só uma outra pessoa na chamada: é ela
@@ -187,6 +197,7 @@
     if (on) {
       tries = 0;
       seen = { name: "", text: "", at: 0 };
+      myName = "";
       timer = setInterval(tick, POLL_MS);
     }
   }
