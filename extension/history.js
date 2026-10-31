@@ -324,6 +324,7 @@ const STAGES = {
   outros: "Transcrevendo os participantes…",
   merge: "Juntando as falas…",
   minutes: "Escrevendo a ata…",
+  retry: "O servidor não respondeu. Tentando de novo sozinho…",
 };
 
 const meetingMarkdown = (m) =>
@@ -344,7 +345,15 @@ const fileName = (m) =>
 const send = (message) => chrome.runtime.sendMessage(message).catch(() => null);
 
 // Assunto da reunião: o título que a ata ganhou; sem ata ainda, o nome da aba.
-const subject = (m) => (m.minutes?.match(/^#\s+(.+)$/m)?.[1] || m.title || "Reunião").replace(/[*_`#]/g, "").trim();
+// "Meet: kpi-reom-kzt" é o título da aba, não um assunto: enquanto a reunião não tem ata, vira "Reunião no Meet" e o
+// código da sala vai para a linha de baixo.
+const MEET_TITLE = /^Meet\s*(?:[:\-–]\s*)?([a-z]{3}-[a-z]{4}-[a-z]{3})?$/i;
+const roomCode = (m) => (m.minutes ? "" : (m.title || "").match(MEET_TITLE)?.[1] || "");
+const subject = (m) => {
+  const fromMinutes = m.minutes?.match(/^#\s+(.+)$/m)?.[1];
+  if (fromMinutes) return fromMinutes.replace(/[*_`#]/g, "").trim();
+  return MEET_TITLE.test((m.title || "").trim()) ? "Reunião no Meet" : (m.title || "Reunião").replace(/[*_`#]/g, "").trim();
+};
 
 const dayParts = (ms) => {
   const d = new Date(ms);
@@ -357,6 +366,16 @@ const dayParts = (ms) => {
   };
 };
 
+// "Hoje", "Ontem" ou "sex 30 out": os cabeçalhos que agrupam a lista por dia.
+function dayLabel(ms) {
+  const d = new Date(ms);
+  const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((start(new Date()) - start(d)) / 86_400_000);
+  if (days === 0) return "Hoje";
+  if (days === 1) return "Ontem";
+  return dayParts(ms).day;
+}
+
 const longDate = (ms) =>
   new Date(ms).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -366,20 +385,18 @@ function meetingRow(m, terms) {
   row.href = `#m:${m.id}`;
   row.id = `m-${m.id}`;
 
+  row.dataset.status = m.status || "done";
   const when = el("span", "when");
-  if (m.at) {
-    const { day, time } = dayParts(m.at);
-    when.append(el("b", null, day), el("i", null, time));
-  }
+  if (m.at) when.append(el("b", "time", dayParts(m.at).time));
   const what = el("span", "what");
   const title = el("b", "subject");
   title.append(highlighted(subject(m), terms));
-  const bits = [fmtDuration(m.duration), templateName(m.template)].filter(Boolean).join(" · ");
+  const bits = [roomCode(m), fmtDuration(m.duration), templateName(m.template)].filter(Boolean).join(" · ");
   what.append(title, el("span", "sub", bits));
 
   const state = el("span", "state");
   if (m.status === "recording") state.append(el("span", "chip chip--live", "Ao vivo"));
-  else if (m.status === "processing") state.append(el("span", "chip chip--busy", STAGES[m.stage] ? "Gerando a ata" : "Processando"));
+  else if (m.status === "processing") state.append(el("span", "chip chip--busy", m.stage === "retry" ? "Tentando de novo" : STAGES[m.stage] ? "Gerando a ata" : "Processando"));
   else if (m.status === "failed") state.append(el("span", "chip chip--bad", "Não deu certo"));
   else state.append(el("span", "chev", "›"));
   row.append(when, what, state);
@@ -535,12 +552,17 @@ function meetingDetail(m, terms) {
     return view;
   }
 
+  const retryButton = () => button("Tentar de novo", () => send({ type: "meeting-retry", id: m.id }), "primary");
   if (m.status === "failed") {
     view.append(el("p", "error", m.error || "Não deu certo."));
-    const bar = el("div", "actions");
-    bar.append(button("Tentar de novo", () => send({ type: "meeting-retry", id: m.id }), "primary"), erase);
-    view.append(bar);
-    return view;
+    if (!(m.segments || []).some((s) => s.text)) {
+      const bar = el("div", "actions");
+      bar.append(retryButton(), erase);
+      view.append(bar);
+      return view;
+    }
+    // Há texto salvo: mostra a transcrição abaixo em vez de só o erro. Nada do que foi dito se perde.
+    view.append(el("p", "hint", "O que foi dito até aqui ficou salvo e está na aba Transcrição."));
   }
 
   const lines = transcriptLines(m);
@@ -564,6 +586,7 @@ function meetingDetail(m, terms) {
     pick.value = templates.some((t) => t.id === m.template) ? m.template : templates[0].id;
     bar.append(pick, button(m.minutes ? "Refazer ata" : "Gerar ata", () => send({ type: "meeting-minutes", id: m.id, template: pick.value })));
   }
+  if (m.status === "failed") bar.append(retryButton());
   bar.append(erase);
   view.append(bar);
 
@@ -664,7 +687,7 @@ function render() {
 
   // history.html#m:<id> abre a reunião (o popup e a lista usam isso); sem hash, a lista.
   const opened = openMeetingId() && meetings.find((m) => m.id === openMeetingId());
-  document.body.classList.toggle("detail", Boolean(opened));
+  document.body.classList.toggle("is-detail", Boolean(opened)); // "detail" é a classe do conteúdo: no body, ele virava uma coluna flex e o cabeçalho encolhia
   if (opened) {
     $("list").replaceChildren(meetingDetail(opened, terms));
     $("empty").hidden = true;
@@ -687,7 +710,17 @@ function render() {
     ...meetingHits.map((m) => ({ at: m.at || 0, node: () => meetingRow(m, terms) })),
   ].sort((a, b) => b.at - a.at);
 
-  $("list").replaceChildren(...merged.slice(0, SHOW_MAX).map((x) => x.node()));
+  const nodes = [];
+  let lastDay = "";
+  for (const x of merged.slice(0, SHOW_MAX)) {
+    const label = x.at ? dayLabel(x.at) : "Sem data";
+    if (label !== lastDay) {
+      nodes.push(el("h2", "day-head", label));
+      lastDay = label;
+    }
+    nodes.push(x.node());
+  }
+  $("list").replaceChildren(...nodes);
 
   const total = voice.length + meetings.length;
   const some = (n, one, many) => `${n} ${n === 1 ? one : many}`;
