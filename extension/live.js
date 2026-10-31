@@ -95,7 +95,17 @@ function paintFeed() {
     tentative.push(...others, ...mine);
     tentative.sort((a, b) => a.start - b.start);
   }
-  const rows = [...lines, ...tentative];
+  // Janelas ainda sem texto: um "…" na posição do horário delas. Se já há texto provisório daquele lado, é a mesma frase.
+  const hasPartial = new Set(tentative.map((t) => t.who));
+  const pendingRows =
+    rec && !rec.paused
+      ? Object.values(live.pending || {})
+          .filter((p) => !hasPartial.has(p.who))
+          .map((p) => ({ who: p.who, start: p.t0, end: p.t0, text: "…", partial: true, pending: true }))
+      : [];
+  // Tudo por horário: a fala que termina antes não passa à frente da que começou antes e ainda está sendo transcrita
+  // (o texto provisório e o "…" ficavam sempre depois das falas prontas).
+  const rows = [...lines, ...tentative, ...pendingRows].sort((a, b) => a.start - b.start);
   if (!rows.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
@@ -125,7 +135,7 @@ function paintFeed() {
     feed.append(row);
   }
   // O cursor âmbar fica na última fala enquanto a gravação segue.
-  const last = feed.lastElementChild?.querySelector(".said");
+  const last = rows[rows.length - 1]?.pending ? null : feed.lastElementChild?.querySelector(".said");
   if (rec && last) last.append(Object.assign(document.createElement("span"), { className: "caret", "aria-hidden": "true" }));
   const fresh = lines.length > seen;
   seen = lines.length;

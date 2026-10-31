@@ -161,6 +161,7 @@
           const next = queue.shift();
           try {
             await send(next);
+            pending(next, false); // o texto já foi (live-text vem antes)
             if (failing) tell({ type: "live-status", error: null });
             failing = false;
           } catch (err) {
@@ -175,6 +176,7 @@
             // Esgotou as tentativas: a janela se perde. A reunião fica sabendo que o texto ao vivo tem
             // buraco e, no fim, transcreve o áudio inteiro em vez de confiar nele.
             tell({ type: "live-status", error: String(err.message || err), lost: true });
+            pending(next, false);
             failing = true;
           }
         }
@@ -202,10 +204,17 @@
       clear: (who) => tell({ type: "live-partial", who, t0: 0, lines: [] }),
     };
 
+    // Cada janela enviada ao servidor aparece no painel como "…" na posição do horário dela até o texto chegar,
+    // para a fala de quem terminou primeiro não passar à frente da que ainda está sendo transcrita.
+    let jobSeq = 0;
+    const pending = (job, on) => tell({ type: "live-pending", id: job.id, who: job.who, t0: job.t0, on });
+
     function enqueue(job) {
+      job.id = ++jobSeq;
+      pending(job, true);
       queue.push(job);
       if (queue.length > LIVE.maxQueue) {
-        queue.shift();
+        pending(queue.shift(), false);
         tell({ type: "live-status", lag: true });
       }
       pump();

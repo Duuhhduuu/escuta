@@ -308,7 +308,7 @@ async function stopMeeting() {
     // Mesmo que o gravador não responda, o que já foi salvo em disco ainda dá uma reunião.
     await new Promise((resolve) => setTimeout(resolve, 400)); // as últimas falas ainda estão a caminho do service worker
     await saveChain; // o último texto ao vivo chega antes de a reunião mudar de estado
-    await updateLive((cur) => ({ ...cur, partial: {} })); // parou: não sobra texto provisório no painel
+    await updateLive((cur) => ({ ...cur, partial: {}, pending: {} })); // parou: não sobra texto provisório nem "…" no painel
     const kept = await getMeeting(rec.id);
     await saveMeeting({
       ...(kept || {}),
@@ -666,6 +666,20 @@ async function liveText(lines) {
   await keepLiveLines(rec.id, lines);
 }
 
+// Janelas enviadas ao servidor e ainda sem texto: o painel mostra "…" no lugar certo até chegar. Só na sessão.
+async function livePending({ id, who, t0, on }) {
+  const rec = await getRec();
+  if (!rec?.live || id == null || (who && who !== "voce" && who !== "outros")) return;
+  await updateLive((cur) => {
+    const now = Date.now();
+    const pending = {};
+    for (const [key, p] of Object.entries(cur.pending || {})) if (now - p.at < 90_000) pending[key] = p; // esquecida: some
+    if (on) pending[id] = { who, t0, at: now };
+    else delete pending[id];
+    return { ...cur, id: rec.id, pending };
+  });
+}
+
 // Texto provisório da frase em andamento. Fica só na sessão (para o painel); não vai para a reunião.
 async function livePartial({ who, t0, lines }) {
   const rec = await getRec();
@@ -789,6 +803,8 @@ function meetingHandle(msg) {
       return liveText(msg.lines).then(() => ({ ok: true }));
     case "live-partial":
       return livePartial(msg).then(() => ({ ok: true }));
+    case "live-pending":
+      return livePending(msg).then(() => ({ ok: true }));
     case "live-status":
       return liveStatus(msg).then(() => ({ ok: true }));
     case "rec-pending":
