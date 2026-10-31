@@ -43,12 +43,15 @@
       </div>
     </section>
 
-    <section class="notes" id="notesbox">
-      <label for="goal">Objetivo da reunião</label>
-      <input id="goal" type="text" maxlength="500" autocomplete="off" placeholder="Qual é o objetivo desta reunião? A ata diz se foi alcançado." />
-      <label for="notes">Notas</label>
-      <textarea id="notes" rows="4" spellcheck="true" placeholder="Anote o que importa. Entra na ata."></textarea>
-    </section>
+    <details class="notes" id="notesbox">
+      <summary><span>Objetivo e notas</span><small id="notes-hint">opcional</small></summary>
+      <div class="notes-body">
+        <label for="goal">Objetivo da reunião</label>
+        <input id="goal" type="text" maxlength="500" autocomplete="off" placeholder="Qual é o objetivo desta reunião? A ata diz se foi alcançado." />
+        <label for="notes">Notas</label>
+        <textarea id="notes" rows="3" spellcheck="true" placeholder="Anote o que importa. Entra na ata."></textarea>
+      </div>
+    </details>
 
     <footer>
       <button type="button" id="copy" class="round" title="Copiar a transcrição" aria-label="Copiar a transcrição">

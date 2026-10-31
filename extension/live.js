@@ -131,6 +131,8 @@ function paintFeed() {
 }
 
 function paintState() {
+  // Gravando, só dá para minimizar: o X fazia o painel sumir sem como trazê-lo de volta. Depois da reunião, fechar volta.
+  $("tool-close").hidden = Boolean(rec);
   const title = rec?.title || meeting?.title || "Ao vivo";
   $("title").textContent = title;
   document.title = `Escuta · ${title}`;
@@ -211,19 +213,41 @@ function saveGoal() {
   return chrome.storage.session.set({ goal });
 }
 $("goal").addEventListener("input", () => {
+  paintHint();
   clearTimeout(savingGoal);
   savingGoal = setTimeout(saveGoal, 400);
 });
+
+// O que a linha fechada mostra: o objetivo, se houver; senão, que há notas; senão, que é opcional.
+function paintHint() {
+  const g = $("goal").value.trim();
+  $("notes-hint").textContent = g || ($("notes").value.trim() ? "notas escritas" : "opcional");
+}
 
 function paintNotes() {
   paintGoal();
   const box = $("notes");
   box.disabled = !rec;
-  if (document.activeElement === box) return; // não mexe no que a pessoa está digitando
+  if (document.activeElement === box) return paintHint(); // não mexe no que a pessoa está digitando
   const text = rec ? (notes.id === rec.id ? notes.text : "") : meeting?.notes || "";
   if (box.value !== text) box.value = text;
   box.placeholder = rec ? "Anote o que importa. Entra na ata." : text ? "" : "As notas da reunião aparecem aqui.";
+  paintHint();
 }
+
+// Lembra se a pessoa prefere a seção aberta.
+try {
+  if (localStorage.getItem("escuta.notesOpen") === "1") $("notesbox").open = true;
+} catch {
+  // sem armazenamento, ela abre fechada
+}
+$("notesbox").addEventListener("toggle", () => {
+  try {
+    localStorage.setItem("escuta.notesOpen", $("notesbox").open ? "1" : "0");
+  } catch {
+    // tudo bem
+  }
+});
 
 let saving = 0;
 function saveNotes() {
@@ -233,6 +257,7 @@ function saveNotes() {
   return chrome.storage.session.set({ notes });
 }
 $("notes").addEventListener("input", () => {
+  paintHint();
   clearTimeout(saving);
   saving = setTimeout(saveNotes, 400);
 });
