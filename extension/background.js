@@ -3,7 +3,7 @@ const BASE = "http://127.0.0.1:8765";
 const DEFAULTS = {
   language: "pt",
   whisperModel: "large-v3-turbo",
-  ollamaModel: "qwen2.5:7b",
+  ollamaModel: "qwen2.5:3b-instruct",
   live: true, // transcrição ao vivo durante a reunião
   autoMeet: false, // gravar sozinho as chamadas do Google Meet (experimental)
 };

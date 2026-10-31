@@ -65,9 +65,10 @@ PORT = int(os.environ.get("ESCUTA_PORT", "8765"))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 DEFAULT_WHISPER = "large-v3-turbo"
 CPU_MODEL = "small"  # sugerido quando não há GPU; ver recommended_model()
-DEFAULT_OLLAMA = "qwen2.5:7b"
-# When GEMINI_API_KEY is set, summaries go to Gemini (cloud). Otherwise they use Ollama (local).
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+DEFAULT_OLLAMA = "qwen2.5:3b-instruct"
+# The installer can pin a provider; without one, keep the legacy behavior based on the Gemini key.
+SUMMARY_PROVIDER = os.environ.get("ESCUTA_SUMMARY_PROVIDER", "").strip().lower()
+GEMINI_KEY = "" if SUMMARY_PROVIDER == "ollama" else os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 # Optional shared secret. When set, every request must carry it in X-Escuta-Token,
