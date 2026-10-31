@@ -203,7 +203,6 @@ async function startMeeting({ streamId, tabId, title, template, mic, source, goa
     language: settings.language,
   });
   if (goal && String(goal).trim()) await chrome.storage.session.set({ [GOAL_KEY]: { id, text: String(goal).trim().slice(0, 500) } });
-  setBadge("REC", "#b42318");
   logRec(
     `gravando: ${res.mic ? "microfone ok" : `sem microfone (${res.micError || "?"})`}; ` +
       (settings.live === false ? "ao vivo desligado" : res.live ? "áudio ao vivo ok" : `áudio ao vivo indisponível (${res.liveError || "?"})`),
@@ -265,7 +264,6 @@ async function pauseMeeting(pause) {
   }
   const now = Date.now();
   await setRec({ ...rec, paused: pause, pausedAt: pause ? now : null, pausedMs: (rec.pausedMs || 0) + (pause ? 0 : now - rec.pausedAt) });
-  setBadge(pause ? "II" : "REC", pause ? "#c98a00" : "#b42318");
   logRec(pause ? "gravação pausada" : "gravação retomada");
   return { ok: true, data: {} };
 }
