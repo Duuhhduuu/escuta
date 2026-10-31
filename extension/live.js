@@ -57,6 +57,8 @@ function withoutEcho(lines) {
 // O nome que mais apareceu nas legendas em volta da fala (a legenda chega um pouco depois da voz).
 function speakerOf(line) {
   if (line.who !== "outros" || !rec || !heard.length) return null;
+  // Chamada de duas pessoas (todos os avisos vieram com uma só outra pessoa): toda fala dos outros é dela.
+  if (heard.every((e) => e.solo) && new Set(heard.map((e) => e.name)).size === 1) return heard[0].name;
   const from = rec.startedAt + (line.start - 1) * 1000;
   const to = rec.startedAt + ((line.end ?? line.start) + 2.5) * 1000;
   const count = new Map();

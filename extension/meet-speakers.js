@@ -208,7 +208,8 @@
     if (name) {
       if (name !== current) current = name;
       currentAt = now;
-      send({ type: "meet-speaker", name: name.slice(0, 80), t: now });
+      // solo: só havia uma outra pessoa na chamada. Se todos os avisos forem assim, a chamada é de dois e toda fala dos outros é dela.
+      send({ type: "meet-speaker", name: name.slice(0, 80), t: now, solo: others.length === 1 });
     }
   }
 
@@ -230,7 +231,7 @@
       return;
     }
     seen = { name: line.name, text: line.text, at: now };
-    send({ type: "meet-speaker", name: line.name.slice(0, 80), t: now });
+    send({ type: "meet-speaker", name: line.name.slice(0, 80), t: now, solo: false });
   }
 
   function setRunning(on) {
