@@ -57,14 +57,17 @@ function withoutEcho(lines) {
 // O nome que mais apareceu nas legendas em volta da fala (a legenda chega um pouco depois da voz).
 function speakerOf(line) {
   if (line.who !== "outros" || !rec || !heard.length) return null;
+  // Chamada de duas pessoas (todos os avisos vieram com uma só outra pessoa): toda fala dos outros é dela.
+  if (heard.every((e) => e.solo) && new Set(heard.map((e) => e.name)).size === 1) return heard[0].name;
   const from = rec.startedAt + (line.start - 1) * 1000;
   const to = rec.startedAt + ((line.end ?? line.start) + 2.5) * 1000;
   const count = new Map();
   for (const e of heard) if (e.t >= from && e.t <= to) count.set(e.name, (count.get(e.name) || 0) + 1);
   const best = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   if (best) return best;
-  // Sem aviso na janela: vale o último nome que apareceu até uns segundos antes (a fala não troca de dono do nada).
-  const before = heard.filter((e) => e.t <= to && e.t >= from - 6000).pop();
+  // Sem aviso na janela, só vale o último nome de pouco antes: as legendas atualizam enquanto a pessoa fala, então
+  // um nome mais antigo seria de outra fala. Sem nome é melhor que nome errado.
+  const before = heard.filter((e) => e.t <= to && e.t >= from - 2500).pop();
   return before?.name || null;
 }
 

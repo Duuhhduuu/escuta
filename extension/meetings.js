@@ -304,7 +304,7 @@ async function stopMeeting() {
     const me = (typed || (seen?.id === rec.id ? seen.name : "") || "").slice(0, 80);
     const heard = (await chrome.storage.session.get(SPEAKERS_KEY))[SPEAKERS_KEY];
     // [segundo desde o início, nome]: é o que cruza com o horário de cada trecho da transcrição
-    const speakers = heard?.id === rec.id ? heard.events.map((e) => [Math.round(((e.t - rec.startedAt) / 1000) * 10) / 10, e.name]) : [];
+    const speakers = heard?.id === rec.id ? heard.events.map((e) => [Math.round(((e.t - rec.startedAt) / 1000) * 10) / 10, e.name, e.solo ? 1 : 0]) : [];
     // Mesmo que o gravador não responda, o que já foi salvo em disco ainda dá uma reunião.
     await new Promise((resolve) => setTimeout(resolve, 400)); // as últimas falas ainda estão a caminho do service worker
     await saveChain; // o último texto ao vivo chega antes de a reunião mudar de estado
@@ -426,8 +426,13 @@ const NAME_BEFORE = 1;
 const NAME_AFTER = 2.5;
 function nameSpeakers(segments, speakers, me = "") {
   if (!speakers?.length && !me) return segments;
+  // Chamada de duas pessoas: todos os avisos vieram com uma só outra pessoa na tela e com o mesmo nome.
+  // Então toda fala dos outros é dela, mesmo a que não tem aviso por perto (a leitura do nome falha às vezes).
+  const names = new Set((speakers || []).map((s) => s[1]));
+  const only = speakers?.length && names.size === 1 && speakers.every((s) => s[2] === 1) ? [...names][0] : "";
   return segments.map((seg) => {
     if (seg.who === "voce") return me ? { ...seg, speaker: me } : seg; // a sua fala leva o seu nome
+    if (seg.who === "outros" && only) return { ...seg, speaker: only };
     if (seg.who !== "outros" || !speakers?.length) return seg;
     const count = new Map();
     for (const [t, name] of speakers) if (t >= seg.start - NAME_BEFORE && t <= seg.end + NAME_AFTER) count.set(name, (count.get(name) || 0) + 1);
@@ -690,12 +695,12 @@ async function addSelf({ name }) {
   return { ok: true };
 }
 
-async function addSpeaker({ name, t }) {
+async function addSpeaker({ name, t, solo }) {
   const rec = await getRec();
   if (!rec || !name) return { ok: true };
   const held = (await chrome.storage.session.get(SPEAKERS_KEY))[SPEAKERS_KEY];
   if (held?.id !== rec.id) return { ok: true };
-  if (held.events.length < 20_000) held.events.push({ name: String(name).slice(0, 80), t });
+  if (held.events.length < 20_000) held.events.push({ name: String(name).slice(0, 80), t, solo: Boolean(solo) });
   await chrome.storage.session.set({ [SPEAKERS_KEY]: held });
   return { ok: true };
 }
