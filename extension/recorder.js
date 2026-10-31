@@ -20,14 +20,16 @@
     maxWindowMs: 8000, // ninguém espera mais que isso para ver texto
     minVoiceMs: 200, // menos fala que isso na janela é tecla ou estalo: descarta. "Tá", "é", "não" e "sim" cabem aqui
     minPartialVoiceMs: 500, // o provisório é mais exigente: um palpite sobre meia palavra só atrapalha
+    missedVoiceMs: 1200, // janela com tanta voz e nenhum texto do modelo aparece no painel como "(não entendi)"
     dropSilenceMs: 1500,
     maxQueue: 60, // servidor mais lento que a fala: só então descarta as mais velhas
     timeoutMs: 60_000,
     retries: 3, // uma janela que falha tenta de novo antes de ser dada como perdida
     retryMs: 1500,
     drainMs: 25_000, // ao parar, espera a fila esvaziar até aqui
-    partialMs: 1200, // a cada tanto de fala nova, mostra o texto provisório da frase em andamento
-    partialMaxMs: 10_000, // o provisório olha só os últimos segundos da frase: continua rápido em frase longa
+    partialFirstMs: 700, // o primeiro provisório de uma frase sai cedo: é o que dá a sensação de "escrevendo"
+    partialMs: 900, // depois, a cada tanto de fala nova
+    partialMaxMs: 6000, // o provisório olha só os últimos segundos da frase: mais barato e continua rápido em frase longa
     partialTimeoutMs: 8000,
   };
 
@@ -69,7 +71,7 @@
     function flush() {
       const pcm = new Int16Array(frames.length * frames[0].length);
       frames.forEach((frame, i) => pcm.set(frame, i * frame.length));
-      emit({ who, t0: startMs / 1000, pcm });
+      emit({ who, t0: startMs / 1000, pcm, voiceMs });
       reset();
     }
 
@@ -101,7 +103,7 @@
         reset();
       } else if (voiceMs >= LIVE.minVoiceMs && ((silentMs >= LIVE.pauseMs && ms >= LIVE.minWindowMs) || ms >= LIVE.maxWindowMs)) {
         flush();
-      } else if (partial && voiceMs >= LIVE.minPartialVoiceMs && silentMs < LIVE.pauseMs && clock - lastPartial >= LIVE.partialMs) {
+      } else if (partial && voiceMs >= LIVE.minPartialVoiceMs && silentMs < LIVE.pauseMs && clock - (lastPartial || startMs) >= (lastPartial ? LIVE.partialMs : LIVE.partialFirstMs)) {
         lastPartial = clock;
         partial.send(snapshot());
       }
@@ -138,6 +140,11 @@
 
     async function send(job) {
       const all = await request(job, AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.timeoutMs)]));
+      // Janela com voz de verdade (mais de 1,2 s) em que o modelo não achou fala nem som: em vez de sumir sem aviso,
+      // o painel mostra "(não entendi)" no horário dela. Só no painel, não entra na transcrição salva nem na ata.
+      if (!all.length && (job.voiceMs || 0) >= LIVE.missedVoiceMs) {
+        all.push({ who: job.who, start: job.t0, end: job.t0 + job.pcm.length / 16000, text: "não entendi", sound: true });
+      }
       const before = lastLine[job.who];
       const lines = all.filter((l) => !(plain(l.text) === before.text && l.start - before.end < 3));
       if (lines.length) {

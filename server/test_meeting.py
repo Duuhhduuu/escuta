@@ -266,12 +266,15 @@ class Accuracy(unittest.TestCase):
     def test_provisional_text_only_passes_with_confidence(self):
         confident = {"start": 0, "end": 2, "text": "E sobre o prazo da integração", "no_speech": 0.05, "logprob": -0.3}
         unsure = {"start": 0, "end": 2, "text": "E sobre o prazo da integração", "no_speech": 0.05, "logprob": -1.1}
-        noisy = {"start": 0, "end": 2, "text": "E sobre o prazo da integração", "no_speech": 0.5, "logprob": -0.3}
-        single = {"start": 0, "end": 2, "text": "Então", "no_speech": 0.05, "logprob": -0.3}
+        noisy = {"start": 0, "end": 2, "text": "E sobre o prazo da integração", "no_speech": 0.6, "logprob": -0.3}
+        first_word = {"start": 0, "end": 2, "text": "Então", "no_speech": 0.05, "logprob": -0.3}
+        tiny = {"start": 0, "end": 2, "text": "é", "no_speech": 0.05, "logprob": -0.3}
         self.assertEqual(len(meeting.clean_live([confident], "pt", True)), 1)
         self.assertEqual(meeting.clean_live([unsure], "pt", True), [])
         self.assertEqual(meeting.clean_live([noisy], "pt", True), [])
-        self.assertEqual(meeting.clean_live([single], "pt", True), [])
+        # a primeira palavra da frase já aparece: era isso que fazia o provisório demorar
+        self.assertEqual(len(meeting.clean_live([first_word], "pt", True)), 1)
+        self.assertEqual(meeting.clean_live([tiny], "pt", True), [])
         # o texto definitivo é menos rígido: o mesmo trecho incerto ainda vale
         self.assertEqual(len(meeting.clean_live([unsure], "pt", False)), 1)
 

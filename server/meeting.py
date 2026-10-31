@@ -328,7 +328,10 @@ def clean_live(segments, language="pt", strict=False):
         text = seg["text"].strip()
         if not text or _is_filler(text) or _is_cough(text) or is_repetition(text) or looks_gibberish(text):
             continue
-        if strict and (seg.get("logprob", 0) < -0.85 or seg.get("no_speech", 0) > 0.4 or len(text.split()) < 2):
+        # O provisório é um palpite sobre uma frase pela metade, mas exigir confiança alta demais escondia as
+        # primeiras palavras e fazia o texto demorar a aparecer. O lixo (letras trocadas, repetição, inglês
+        # inventado) já é barrado acima, para todo texto; aqui só cai o que o modelo mesmo acha duvidoso.
+        if strict and (seg.get("logprob", 0) < -1.0 or seg.get("no_speech", 0) > 0.5 or len(text) < 3):
             continue
         if language == "pt" and (looks_english(text) or _norm(LIVE_SEED) in _norm(text)):
             continue
