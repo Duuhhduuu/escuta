@@ -32,14 +32,15 @@
     }
     /* Gravando: em vez de um ponto vermelho, as barras de voz do próprio símbolo se mexem e o cursor pisca. */
     @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-    @keyframes eq { 0%, 100% { transform: scaleY(0.4); } 50% { transform: scaleY(1.25); } }
+    @keyframes eq { 0%, 100% { transform: scaleY(0.5); } 50% { transform: scaleY(1.2); } }
     @keyframes breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-    .pill .bar { transform-box: fill-box; transform-origin: center; animation: eq 1.1s ease-in-out infinite; }
-    .pill path:nth-child(3) { animation-delay: -0.3s; }
-    .pill path:nth-child(4) { animation-delay: -0.6s; }
-    .pill path:nth-child(5) { animation-delay: -0.9s; }
+    /* Onda lenta (2 s): cada barra um passo atrás da anterior, em intervalos iguais. */
+    .pill .bar { transform-box: fill-box; transform-origin: center; animation: eq 2s ease-in-out infinite; }
+    .pill path:nth-child(3) { animation-delay: -0.25s; }
+    .pill path:nth-child(4) { animation-delay: -0.5s; }
+    .pill path:nth-child(5) { animation-delay: -0.75s; }
     .pill .cur { animation: blink 1s steps(1) infinite; }
-    @media (prefers-reduced-motion: reduce) { .pill .bar { animation: breathe 1.6s ease-in-out infinite; } }
+    @media (prefers-reduced-motion: reduce) { .pill .bar { animation: breathe 2.6s ease-in-out infinite; } }
     .pill:hover { filter: brightness(1.1); }
     .pill:focus-visible { outline: 3px solid #f6f4ef; outline-offset: 2px; }
     .pill svg { width: 30px; height: 30px; }
