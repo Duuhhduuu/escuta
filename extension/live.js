@@ -84,7 +84,16 @@ function paintFeed() {
   const lines = withoutEcho(live.lines);
   const feed = $("feed");
   feed.replaceChildren();
-  if (!lines.length) {
+  // Texto provisório: a frase ainda em andamento, em cinza. A sua só aparece se não for o eco da dos participantes.
+  const tentative = [];
+  if (rec && !rec.paused) {
+    const others = (live.partial?.outros || []).map((l) => ({ ...l, who: "outros", partial: true }));
+    const mine = (live.partial?.voce || []).map((l) => ({ ...l, who: "voce", partial: true })).filter((l) => !others.some((o) => similar(o.text, l.text)));
+    tentative.push(...others, ...mine);
+    tentative.sort((a, b) => a.start - b.start);
+  }
+  const rows = [...lines, ...tentative];
+  if (!rows.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
     const bars = document.createElement("div");
@@ -101,9 +110,9 @@ function paintFeed() {
     feed.append(empty);
     return;
   }
-  for (const line of lines) {
+  for (const line of rows) {
     const row = document.createElement("div");
-    row.className = line.who === "voce" ? "line me" : "line";
+    row.className = `${line.who === "voce" ? "line me" : "line"}${line.partial ? " partial" : ""}`;
     const meta = document.createElement("div");
     meta.className = "meta";
     const at = Object.assign(document.createElement("span"), { className: "at", textContent: stamp(line.start) });

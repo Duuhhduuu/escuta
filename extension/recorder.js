@@ -14,7 +14,7 @@
   // tempo fixo parte frases ao meio e o Whisper erra as pontas. Cada janela vai para /live.
   const LIVE = {
     voiceRms: 0.01, // acima disso o bloco de 100 ms conta como fala (no seu microfone)
-    voiceRmsOthers: 0.004, // a voz dos outros chega mais baixa, vinda da chamada
+    voiceRmsOthers: 0.005, // a voz dos outros chega mais baixa, vinda da chamada; abaixo disso é ruído
     minWindowMs: 1800, // janela mais curta que isso espera mais fala, a não ser que haja pausa longa
     pauseMs: 450, // pausa que fecha uma frase
     maxWindowMs: 8000, // ninguém espera mais que isso para ver texto
@@ -25,6 +25,9 @@
     retries: 3, // uma janela que falha tenta de novo antes de ser dada como perdida
     retryMs: 1500,
     drainMs: 25_000, // ao parar, espera a fila esvaziar até aqui
+    partialMs: 1200, // a cada tanto de fala nova, mostra o texto provisório da frase em andamento
+    partialMaxMs: 10_000, // o provisório olha só os últimos segundos da frase: continua rápido em frase longa
+    partialTimeoutMs: 8000,
   };
 
   // 48 kHz -> 16 kHz por média de 3 amostras (basta para voz) e PCM de 16 bits.
@@ -39,18 +42,28 @@
     return { pcm: out, rms: Math.sqrt(energy / out.length) };
   }
 
-  function liveChannel(who, emit) {
+  function liveChannel(who, emit, partial) {
     let frames = [];
     let ms = 0; // duração do que está pendente
     let voiceMs = 0;
     let silentMs = 0;
     let startMs = 0; // onde a janela pendente começa, desde o início da gravação
     let clock = 0; // total de áudio visto neste canal
+    let lastPartial = 0;
 
     const reset = () => {
       frames = [];
       ms = voiceMs = silentMs = 0;
+      lastPartial = 0;
     };
+
+    // Os últimos segundos da frase em andamento, para o texto provisório.
+    function snapshot() {
+      const kept = frames.slice(-LIVE.partialMaxMs / 100);
+      const pcm = new Int16Array(kept.length * kept[0].length);
+      kept.forEach((frame, i) => pcm.set(frame, i * frame.length));
+      return { who, t0: (clock - kept.length * 100) / 1000, pcm };
+    }
 
     function flush() {
       const pcm = new Int16Array(frames.length * frames[0].length);
@@ -83,9 +96,13 @@
         ms = 300;
         startMs = clock - 300;
       } else if (silentMs >= LIVE.dropSilenceMs && voiceMs < LIVE.minVoiceMs) {
+        partial?.clear(who); // era barulho, não fala: o provisório some
         reset();
       } else if (voiceMs >= LIVE.minVoiceMs && ((silentMs >= LIVE.pauseMs && ms >= LIVE.minWindowMs) || ms >= LIVE.maxWindowMs)) {
         flush();
+      } else if (partial && voiceMs >= LIVE.minVoiceMs && silentMs < LIVE.pauseMs && clock - lastPartial >= LIVE.partialMs) {
+        lastPartial = clock;
+        partial.send(snapshot());
       }
     };
     push.finish = finish;
@@ -97,21 +114,29 @@
     const abort = new AbortController();
     const queue = [];
     const lastText = { voce: "", outros: "" };
+    const lastLine = { voce: "", outros: "" }; // a mesma frase de novo, sem pausa entre elas, é o Whisper repetindo
+    const plain = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     let busy = false;
     let failing = false;
     const tell = (payload) => chrome.runtime.sendMessage(payload).catch(() => {});
 
-    async function send(job) {
+    async function request(job, signal) {
       const query = new URLSearchParams({ language: cfg.language, model: cfg.model, prompt: lastText[job.who] });
       const res = await fetch(`${cfg.base}/live?${query}`, {
         method: "POST",
         body: new Blob([job.pcm.buffer]),
         headers: cfg.token ? { "X-Escuta-Token": cfg.token } : {},
-        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.timeoutMs)]),
+        signal,
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Erro ${res.status}`);
       const { segments } = await res.json();
-      const lines = segments.map((s) => ({ who: job.who, start: job.t0 + s.start, end: job.t0 + s.end, text: s.text }));
+      return segments.map((s) => ({ who: job.who, start: job.t0 + s.start, end: job.t0 + s.end, text: s.text }));
+    }
+
+    async function send(job) {
+      const all = await request(job, AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.timeoutMs)]));
+      const lines = all.filter((l) => plain(l.text) !== lastLine[job.who]);
+      if (lines.length) lastLine[job.who] = plain(lines[lines.length - 1].text);
       if (lines.length) {
         lastText[job.who] = `${lastText[job.who]} ${lines.map((l) => l.text).join(" ")}`.trim().slice(-220);
         tell({ type: "live-text", lines });
@@ -150,6 +175,25 @@
       }
     }
 
+    // Texto provisório: a frase ainda em andamento, transcrita de novo a cada poucos instantes. É um extra e
+    // nunca atrasa o que vale: só sai com a fila vazia, não é salvo e some quando a frase fecha.
+    let partialBusy = false;
+    const partial = {
+      async send(job) {
+        if (partialBusy || busy || queue.length || abort.signal.aborted) return;
+        partialBusy = true;
+        try {
+          const lines = await request(job, AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.partialTimeoutMs)]));
+          if (!busy && !queue.length && !abort.signal.aborted) tell({ type: "live-partial", who: job.who, t0: job.t0, lines });
+        } catch {
+          // sem provisório, a pessoa só espera a frase fechar
+        } finally {
+          partialBusy = false;
+        }
+      },
+      clear: (who) => tell({ type: "live-partial", who, t0: 0, lines: [] }),
+    };
+
     function enqueue(job) {
       queue.push(job);
       if (queue.length > LIVE.maxQueue) {
@@ -167,7 +211,7 @@
     for (const [who, node] of Object.entries(nodes)) {
       if (!node) continue;
       const tap = new AudioWorkletNode(ctx, "pcm-tap");
-      const push = liveChannel(who, enqueue);
+      const push = liveChannel(who, enqueue, partial);
       pushes.push(push);
       tap.port.onmessage = (event) => {
         if (!job?.paused) push(event.data); // pausado: o texto ao vivo também espera

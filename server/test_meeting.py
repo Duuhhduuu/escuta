@@ -253,6 +253,15 @@ class Accuracy(unittest.TestCase):
         self.assertEqual(meeting.speech_gain(0.0005, 0.01), 1.0)  # ruído de fundo: não amplifica
         self.assertEqual(meeting.speech_gain(0.0, 0.0), 1.0)
 
+    def test_background_noise_is_not_boosted(self):
+        # ruído de fundo amplificado vira "fala" para o Whisper: o filme de "eai eai eai" sem ninguém falando
+        self.assertEqual(meeting.speech_gain(0.003, 0.05), 1.0)
+
+    def test_repeated_words_are_not_speech(self):
+        seg = lambda t: {"start": 0, "end": 2, "text": t, "no_speech": 0.1, "logprob": -0.2}
+        out = meeting.clean_live([seg("Eai eai eai"), seg("Tá tá tá tá"), seg("Sim, sim, eu concordo com isso"), seg("Fechamos o orçamento")])
+        self.assertEqual([s["text"] for s in out], ["Sim, sim, eu concordo com isso", "Fechamos o orçamento"])
+
     def test_boost_never_clips_and_is_capped(self):
         gain = meeting.speech_gain(0.01, 0.6)
         self.assertLessEqual(0.6 * gain, 0.95 + 1e-9)
