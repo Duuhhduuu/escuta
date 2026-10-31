@@ -107,10 +107,21 @@
     return out;
   }
 
+  // Texto de botão e de menu do quadro ("Planos de fundo e efeitos", "Fixar", "Silenciar"...) não é nome de ninguém.
+  const UI_LABEL = /planos? de fundo|efeitos?|backgrounds?|effects?|fixar|\bpin(ned)?\b|silenciar|\bmute|remover|remove|mais op[cç][õo]es|more options|apresent|present|tela cheia|full ?screen|ajustar|adjust|aplicar|apply|desativar|ativar|turn (on|off)|c[âa]mera|camera|microfone|microphone|legenda|caption|sinalizar|flag|reconect|conectando|aguardando|waiting/i;
+
   function tileName(el) {
     const named = el.querySelector("[data-self-name]")?.textContent?.trim();
-    if (named) return named;
-    return linesOf(el).find((l) => l.length >= 2 && l.length <= 60 && !ICON.test(l)) || "";
+    if (named && !UI_LABEL.test(named)) return named;
+    // Só texto que não esteja dentro de um botão ou menu.
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent.trim();
+      if (text.length < 2 || text.length > 60 || ICON.test(text) || UI_LABEL.test(text)) continue;
+      if (node.parentElement?.closest('button, [role="button"], [role="menu"], [role="menuitem"], [role="tooltip"]')) continue;
+      return text;
+    }
+    return "";
   }
 
   // Quem grava aparece como "Você" (ou com o nome, no quadrinho), e o próprio vídeo é espelhado.

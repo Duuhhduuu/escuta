@@ -120,8 +120,9 @@
     let failing = false;
     const tell = (payload) => chrome.runtime.sendMessage(payload).catch(() => {});
 
-    async function request(job, signal) {
+    async function request(job, signal, partial = false) {
       const query = new URLSearchParams({ language: cfg.language, model: cfg.model, prompt: lastText[job.who] });
+      if (partial) query.set("partial", "1"); // o servidor só devolve o que ouviu com confiança
       const res = await fetch(`${cfg.base}/live?${query}`, {
         method: "POST",
         body: new Blob([job.pcm.buffer]),
@@ -130,7 +131,7 @@
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Erro ${res.status}`);
       const { segments } = await res.json();
-      return segments.map((s) => ({ who: job.who, start: job.t0 + s.start, end: job.t0 + s.end, text: s.text }));
+      return segments.map((s) => ({ who: job.who, start: job.t0 + s.start, end: job.t0 + s.end, text: s.text, ...(s.sound ? { sound: true } : {}) }));
     }
 
     async function send(job) {
@@ -138,7 +139,8 @@
       const lines = all.filter((l) => plain(l.text) !== lastLine[job.who]);
       if (lines.length) lastLine[job.who] = plain(lines[lines.length - 1].text);
       if (lines.length) {
-        lastText[job.who] = `${lastText[job.who]} ${lines.map((l) => l.text).join(" ")}`.trim().slice(-220);
+        const said = lines.filter((l) => !l.sound).map((l) => l.text); // "hum" e "ruído" não servem de dica ao Whisper
+        if (said.length) lastText[job.who] = `${lastText[job.who]} ${said.join(" ")}`.trim().slice(-220);
         tell({ type: "live-text", lines });
       }
     }
@@ -183,7 +185,7 @@
         if (partialBusy || busy || queue.length || abort.signal.aborted) return;
         partialBusy = true;
         try {
-          const lines = await request(job, AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.partialTimeoutMs)]));
+          const lines = await request(job, AbortSignal.any([abort.signal, AbortSignal.timeout(LIVE.partialTimeoutMs)]), true);
           if (!busy && !queue.length && !abort.signal.aborted) tell({ type: "live-partial", who: job.who, t0: job.t0, lines });
         } catch {
           // sem provisório, a pessoa só espera a frase fechar

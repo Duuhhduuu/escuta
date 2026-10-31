@@ -168,6 +168,7 @@ main::before { content: ""; flex: 1; } /* ancora as falas embaixo, como no desen
 .line .who { font-weight: 600; font-size: 12.5px; }
 .line .said { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font: 13px/1.4 var(--sans); overflow-wrap: anywhere; text-wrap: pretty; }
 .line.me .said { background: var(--you); border-color: var(--youln); }
+.line.sound .said { display: inline-block; padding: 3px 10px; border-style: dotted; background: transparent; color: var(--mute); font-style: italic; font-size: 12px; }
 .line.partial .said { border-style: dashed; background: transparent; color: var(--mute); }
 .caret { display: inline-block; width: 2px; height: 15px; margin-left: 3px; border-radius: 1px; background: var(--cur); vertical-align: text-bottom; animation: type 1s steps(1) infinite; }
 

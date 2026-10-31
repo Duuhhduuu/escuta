@@ -236,6 +236,12 @@ HALLUCINATIONS = ("Legendas pela comunidade", "Amara.org", "Obrigado por assisti
 FILLERS = {"hum", "humhum", "hmm", "hm", "uhum", "uhm", "ahn", "aham", "mhm", "mm", "mmm"}
 
 
+def _is_cough(text):
+    """O Whisper às vezes escreve o próprio som: "(Tosse)", "[pigarro]"."""
+    words = _norm(text).split()
+    return bool(words) and all(w in {"tosse", "tossindo", "pigarro", "cough", "coughing"} for w in words)
+
+
 def _is_filler(text):
     words = _norm(text).replace("-", " ").split()
     return bool(words) and all(w.replace(" ", "") in FILLERS for w in words)
@@ -281,18 +287,48 @@ def looks_english(text):
     return (en >= 2 and en > pt) or (en >= 1 and pt == 0 and len(words) <= 4)
 
 
+_REPEATED_CHUNK = re.compile(r"(.{3,6})\1{2,}")
+_CONSONANTS = re.compile(r"[bcdfghjklmnpqrstvwxyz]{6,}")
+_VOWELS = "aeiouáéíóúâêôãõàü"
+
+
+def looks_gibberish(text):
+    """Lixo que o Whisper escreve em cima de ruído: "kAWSKAWSKAWSK", "AAAAAAAA", palavras sem vogal.
+    Nome de marca com maiúscula no meio (iPhone, WhatsApp, PowerPoint) e sigla (API, CRM) passam."""
+    for raw in text.split():
+        word = "".join(c for c in raw if c.isalpha())
+        if len(word) < 4:
+            continue
+        low = word.lower()
+        if word[0].islower() and sum(c.isupper() for c in word) >= 3:
+            return True
+        if len(word) >= 8 and word.isupper() and len(set(word)) <= 3:
+            return True
+        if len(word) >= 8 and _REPEATED_CHUNK.search(low):
+            return True
+        if _CONSONANTS.search(low):
+            return True
+        if len(word) >= 5 and not any(v in low for v in _VOWELS):
+            return True
+    return len(text) > 12 and sum(c.isalpha() for c in text) / len(text) < 0.5
+
+
 def is_repetition(text):
     """Uma ou duas palavras repetidas em fila ("eai eai eai"): é o que o Whisper escreve em cima de ruído."""
     words = _norm(text).split()
     return len(words) >= 3 and len(set(words)) <= max(1, len(words) // 3)
 
 
-def clean_live(segments, language="pt"):
-    """Trechos de uma janela ao vivo que valem mostrar: tira vazio, murmúrio, silêncio com palpite e frase de fim de vídeo."""
+def clean_live(segments, language="pt", strict=False):
+    """Trechos de uma janela ao vivo que valem mostrar: tira vazio, murmúrio, silêncio com palpite e frase de fim de vídeo.
+    strict é para o texto provisório, que é um palpite sobre uma frase pela metade: só passa o que o modelo tem
+    confiança de ter ouvido, para não mostrar lixo em cinza."""
     keep = []
     for seg in segments:
         text = seg["text"].strip()
-        if not text or _is_filler(text) or is_repetition(text):
+        if not text or _is_filler(text) or _is_cough(text) or is_repetition(text) or looks_gibberish(text):
+            continue
+        if strict and (seg.get("logprob", 0) < -0.85 or seg.get("no_speech", 0) > 0.4 or len(text.split()) < 2):
             continue
         if language == "pt" and (looks_english(text) or _norm(LIVE_SEED) in _norm(text)):
             continue
@@ -303,6 +339,37 @@ def clean_live(segments, language="pt"):
             continue
         keep.append({"start": seg["start"], "end": seg["end"], "text": text})
     return keep
+
+
+_COUGH = ("tosse", "pigarro", "cough")
+
+
+def sound_label(text):
+    n = _norm(text)
+    if any(w in n for w in _COUGH):
+        return "tosse"
+    return "hum" if _is_filler(text) else "ruído"
+
+
+def live_segments(segments, language="pt", strict=False):
+    """A fala de clean_live e, no texto definitivo, também os sons que não são fala (hum, tosse, ruído).
+    A pessoa vê que o som foi ouvido, em vez de lixo escrito ou de um buraco que parece falha."""
+    speech = clean_live(segments, language, strict)
+    if strict:
+        return speech
+    kept = {(s["start"], s["end"]) for s in speech}
+    sounds = []
+    for seg in segments:
+        text = seg["text"].strip()
+        if not text or (seg["start"], seg["end"]) in kept:
+            continue
+        if any(_norm(h) in _norm(text) for h in HALLUCINATIONS) or (language == "pt" and (looks_english(text) or _norm(LIVE_SEED) in _norm(text))):
+            continue  # frase inventada, não é som
+        cough = any(w in _norm(text) for w in _COUGH)
+        quiet_guess = seg.get("no_speech", 0) > 0.6 and seg.get("logprob", 0) < -1.0
+        if cough or _is_filler(text) or is_repetition(text) or looks_gibberish(text) or quiet_guess:
+            sounds.append({"start": seg["start"], "end": seg["end"], "text": sound_label(text), "sound": True})
+    return sorted(speech + sounds, key=lambda s: s["start"])
 
 
 def _overlap(a, b):

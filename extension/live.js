@@ -112,13 +112,13 @@ function paintFeed() {
   }
   for (const line of rows) {
     const row = document.createElement("div");
-    row.className = `${line.who === "voce" ? "line me" : "line"}${line.partial ? " partial" : ""}`;
+    row.className = `${line.who === "voce" ? "line me" : "line"}${line.partial ? " partial" : ""}${line.sound ? " sound" : ""}`;
     const meta = document.createElement("div");
     meta.className = "meta";
     const at = Object.assign(document.createElement("span"), { className: "at", textContent: stamp(line.start) });
     const who = Object.assign(document.createElement("span"), { className: "who", textContent: labelOf(line) });
     meta.append(at, who);
-    row.append(meta, Object.assign(document.createElement("p"), { className: "said", textContent: line.text }));
+    row.append(meta, Object.assign(document.createElement("p"), { className: "said", textContent: line.sound ? `(${line.text})` : line.text }));
     feed.append(row);
   }
   // O cursor âmbar fica na última fala enquanto a gravação segue.
@@ -313,6 +313,7 @@ $("open").addEventListener("click", () => {
 
 $("copy").addEventListener("click", async () => {
   const text = withoutEcho(live.lines)
+    .filter((l) => !l.sound)
     .map((l) => `[${stamp(l.start)}] ${labelOf(l)}: ${l.text}`)
     .join("\n");
   let said = "Copiado ✓";

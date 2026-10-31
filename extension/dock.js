@@ -21,6 +21,10 @@
       background: #161d32;
     }
     .panel iframe { display: block; width: 100%; height: 100%; border: 0; color-scheme: normal; }
+    /* A alça cobre o cabeçalho, menos os botões da direita (minimizar, abrir à parte, fechar). */
+    .grip { position: absolute; top: 0; left: 0; z-index: 1; width: calc(100% - 136px); height: 56px; cursor: grab; touch-action: none; }
+    .grip:active { cursor: grabbing; }
+    .grip:focus-visible { outline: 2px solid #f6f4ef; outline-offset: -2px; border-radius: 14px 0 0 0; }
     .pill {
       position: fixed; right: 16px; bottom: 96px; z-index: 2147483647; width: 52px; height: 52px; box-sizing: border-box;
       display: none; align-items: center; justify-content: center; padding: 0; border-radius: 50%;
@@ -92,9 +96,78 @@
   frame.title = "Escuta · transcrição ao vivo";
   frame.allow = "clipboard-write"; // o botão Copiar, de dentro da moldura
   frame.src = chrome.runtime.getURL("live.html?dock=1");
-  panel.append(frame);
+  // Arrastar pelo cabeçalho: o painel às vezes tampa o que a pessoa precisa ver na reunião. A alça fica na
+  // casca, e não dentro da moldura, porque só assim o arrasto continua quando o ponteiro passa por cima dela.
+  const grip = document.createElement("div");
+  grip.className = "grip";
+  grip.tabIndex = 0;
+  grip.title = "Arraste para mover. Duplo clique volta ao canto.";
+  grip.setAttribute("role", "button");
+  grip.setAttribute("aria-label", "Mover o painel: setas movem, Enter volta ao canto");
+  panel.append(frame, grip);
   wrap.append(panel, pill);
   root.append(wrap);
+
+  const POS_KEY = "dockPos"; // { x, y }: o canto do painel como fração da janela, para valer em qualquer tamanho
+  const keep = (promise) => promise?.catch?.(() => {});
+
+  function place(x, y) {
+    const left = Math.min(Math.max(0, x), Math.max(0, innerWidth - panel.offsetWidth));
+    const top = Math.min(Math.max(0, y), Math.max(0, innerHeight - panel.offsetHeight));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+  }
+
+  const moved = () => panel.style.left !== "";
+
+  function save() {
+    const r = panel.getBoundingClientRect();
+    keep(chrome.storage.local.set({ [POS_KEY]: { x: r.left / innerWidth, y: r.top / innerHeight } }));
+  }
+
+  function home() {
+    for (const side of ["left", "top", "right", "bottom"]) panel.style.removeProperty(side);
+    keep(chrome.storage.local.remove(POS_KEY));
+  }
+
+  let drag = null;
+  grip.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const r = panel.getBoundingClientRect();
+    drag = { dx: event.clientX - r.left, dy: event.clientY - r.top };
+    grip.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  grip.addEventListener("pointermove", (event) => {
+    if (drag) place(event.clientX - drag.dx, event.clientY - drag.dy);
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    drag = null;
+    save();
+  };
+  grip.addEventListener("pointerup", endDrag);
+  grip.addEventListener("pointercancel", endDrag);
+  grip.addEventListener("dblclick", home);
+  grip.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 80 : 20;
+    const move = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key];
+    if (event.key === "Enter") home();
+    else if (move) {
+      const r = panel.getBoundingClientRect();
+      place(r.left + move[0], r.top + move[1]);
+      save();
+    } else return;
+    event.preventDefault();
+  });
+  // Janela menor que antes: o painel não pode ficar para fora.
+  window.addEventListener("resize", () => {
+    if (!moved()) return;
+    const r = panel.getBoundingClientRect();
+    place(r.left, r.top);
+  });
 
   const api = {
     show() {
@@ -123,4 +196,15 @@
 
   window[KEY] = api;
   api.show();
+  // A posição da última vez, se a pessoa tinha movido o painel.
+  try {
+    keep(
+      chrome.storage.local.get(POS_KEY).then((saved) => {
+        const pos = saved?.[POS_KEY];
+        if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) place(pos.x * innerWidth, pos.y * innerHeight);
+      }),
+    );
+  } catch {
+    // sem armazenamento, o painel abre no canto de sempre
+  }
 })();
