@@ -21,7 +21,7 @@
 }
 
 /* Escuro quando o sistema é escuro, e sempre escuro dentro do painel da reunião: ele flutua
-   sobre o Meet/Teams/Zoom, que são escuros, e um painel claro ali ofusca. */
+   sobre o Meet, que é escuro, e um painel claro ali ofusca. */
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: #161d32;

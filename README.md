@@ -30,7 +30,7 @@
 O **Escuta** é uma extensão para o navegador, com um pequeno servidor que roda no seu próprio computador. Ele faz três coisas:
 
 1. **Transcreve mensagens de voz do WhatsApp Web.** Cada áudio ganha um botão **Transcrever**.
-2. **Grava e transcreve reuniões** (Google Meet, Teams, Zoom no navegador) e escreve a **ata** no final.
+2. **Grava e transcreve reuniões do Google Meet** e escreve a **ata** no final.
 3. **Resume** tudo, para você ler em 20 segundos o que levaria 5 minutos para ouvir.
 
 A transcrição acontece na sua máquina, com o [Whisper](https://github.com/SYSTRAN/faster-whisper). **O áudio nunca sai do seu computador.** Só o texto já transcrito vai para o Gemini, e só se você escolher usá-lo para os resumos (veja [Privacidade](#privacidade)).
@@ -181,7 +181,7 @@ Clique no ícone do Escuta para ver:
 
 ## Reuniões
 
-Além do WhatsApp, o Escuta grava reuniões online (Google Meet, Teams, Zoom no navegador…) e escreve a ata. Funciona no **Chrome e no Brave**.
+Além do WhatsApp, o Escuta grava reuniões do **Google Meet** e escreve a ata. Funciona no **Chrome e no Brave**.
 
 ### Gravar com um clique
 
