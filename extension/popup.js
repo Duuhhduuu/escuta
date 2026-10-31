@@ -261,6 +261,8 @@ chrome.storage.sync.get({ live: true }).then(({ live }) => ($("live").checked = 
 $("live").addEventListener("change", () => chrome.storage.sync.set({ live: $("live").checked }));
 chrome.storage.sync.get({ autoMeet: false }).then(({ autoMeet }) => ($("autoMeet").checked = autoMeet));
 $("autoMeet").addEventListener("change", () => chrome.storage.sync.set({ autoMeet: $("autoMeet").checked }));
+chrome.storage.sync.get({ myName: "" }).then(({ myName }) => ($("myName").value = myName));
+$("myName").addEventListener("change", () => chrome.storage.sync.set({ myName: $("myName").value.trim().slice(0, 80) }));
 chrome.storage.sync.get({ speakerNames: false }).then(({ speakerNames }) => ($("speakerNames").checked = speakerNames));
 $("speakerNames").addEventListener("change", () => chrome.storage.sync.set({ speakerNames: $("speakerNames").checked }));
 

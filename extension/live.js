@@ -12,6 +12,8 @@ const STAGES = {
   minutes: "Escrevendo a ata…",
 };
 let heard = []; // nomes lidos das legendas do Meet: [{ name, t }], t em ms
+let meName = ""; // o seu nome (do popup ou do quadro do Meet); vazio = "Você"
+const labelOf = (line) => speakerOf(line) || (line.who === "voce" && meName) || WHO[line.who] || line.who;
 const ECHO_SECONDS = 4;
 const ECHO_SIMILARITY = 0.7;
 
@@ -101,7 +103,7 @@ function paintFeed() {
     const meta = document.createElement("div");
     meta.className = "meta";
     const at = Object.assign(document.createElement("span"), { className: "at", textContent: stamp(line.start) });
-    const who = Object.assign(document.createElement("span"), { className: "who", textContent: speakerOf(line) || WHO[line.who] || line.who });
+    const who = Object.assign(document.createElement("span"), { className: "who", textContent: labelOf(line) });
     meta.append(at, who);
     row.append(meta, Object.assign(document.createElement("p"), { className: "said", textContent: line.text }));
     feed.append(row);
@@ -241,7 +243,9 @@ function tick() {
 }
 
 async function read() {
-  const session = await chrome.storage.session.get(["rec", "live", "notes", "goal", "speakers"]);
+  const session = await chrome.storage.session.get(["rec", "live", "notes", "goal", "speakers", "selfname"]);
+  const typed = String((await chrome.storage.sync.get({ myName: "" })).myName || "").trim();
+  meName = typed || (session.selfname?.id && session.selfname.id === session.rec?.id ? session.selfname.name : "");
   heard = session.speakers?.id && session.speakers.id === session.rec?.id ? session.speakers.events || [] : [];
   goal = session.goal || { id: null, text: "" };
   rec = session.rec || null;
@@ -296,7 +300,7 @@ $("open").addEventListener("click", () => {
 
 $("copy").addEventListener("click", async () => {
   const text = withoutEcho(live.lines)
-    .map((l) => `[${stamp(l.start)}] ${WHO[l.who] || l.who}: ${l.text}`)
+    .map((l) => `[${stamp(l.start)}] ${labelOf(l)}: ${l.text}`)
     .join("\n");
   let said = "Copiado ✓";
   try {
@@ -326,7 +330,7 @@ $("jump").addEventListener("click", () => {
 
 let pending = 0;
 chrome.storage.onChanged.addListener((changes, area) => {
-  const relevant = area === "session" ? "rec" in changes || "live" in changes || "speakers" in changes : Object.keys(changes).some((k) => k.startsWith("m:"));
+  const relevant = area === "session" ? "rec" in changes || "live" in changes || "speakers" in changes || "selfname" in changes : Object.keys(changes).some((k) => k.startsWith("m:"));
   if (!relevant) return;
   cancelAnimationFrame(pending);
   pending = requestAnimationFrame(read);
