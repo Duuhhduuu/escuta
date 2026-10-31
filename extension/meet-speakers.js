@@ -169,6 +169,8 @@
 
   // O áudio dos outros está calado (e o hook está mandando): então quem anima é só eu, e ninguém mais recebe nome.
   const onlyMeTalking = () => Date.now() - mic.at < 700 && mic.outros <= OTHERS_OFF;
+  // O meu microfone tem voz agora (sozinho ou junto com os outros).
+  const myVoiceNow = () => Date.now() - mic.at < 700 && mic.voce >= MIC_ON;
 
   const tileId = (el) => el.getAttribute("data-participant-id") || "";
 
@@ -185,6 +187,41 @@
     const second = ranked[1]?.[1] || 0;
     // O quadro que animou em quase todas as leituras e bem mais que o segundo.
     if (bestId && best / soloReads >= 0.6 && second / soloReads <= 0.4) selfId = bestId;
+  }
+
+  // ---- o meu quadro também quando falo junto com os outros ----------------------------------------------------
+  // Só com a minha voz sozinha (acima) demora a achar o meu quadro, e falar junto com os outros logo no começo faz o
+  // meu quadro entrar na disputa como se fosse de outra pessoa. Então compara, para cada quadro, quanto ele anima
+  // quando o meu microfone tem voz e quando não tem: o meu anima bem mais com a minha voz; o dos outros anima quando
+  // eles mesmos falam, não quando eu falo. Em dados reais: +26 pontos para o meu quadro e −35 para os dos outros;
+  // acha o meu em ~6 s de conversa e não trocou de ideia depois.
+  const LIFT_READS = 8; // leituras com e sem a minha voz antes de decidir
+  const LIFT_MIN = 0.2; // quanto a mais o meu quadro anima com a minha voz
+  const LIFT_GAP = 0.2; // folga sobre o segundo colocado
+  const liftOn = new Map(); // id do quadro -> leituras com animação enquanto o meu microfone tinha voz
+  const liftOff = new Map(); // ... e enquanto não tinha
+  let readsOn = 0;
+  let readsOff = 0;
+
+  function learnSelfByLift(named) {
+    if (selfId || Date.now() - mic.at > 700) return; // só com o hook mandando áudio
+    const on = mic.voce >= MIC_ON;
+    if (on) readsOn++;
+    else readsOff++;
+    for (const p of named) {
+      const id = tileId(p.el);
+      if (!id || !animating(p.el)) continue;
+      const bucket = on ? liftOn : liftOff;
+      bucket.set(id, (bucket.get(id) || 0) + 1);
+    }
+    if (readsOn < LIFT_READS || readsOff < LIFT_READS) return;
+    const lifts = named
+      .map((p) => {
+        const id = tileId(p.el);
+        return { id, v: (liftOn.get(id) || 0) / readsOn - (liftOff.get(id) || 0) / readsOff };
+      })
+      .sort((a, b) => b.v - a.v);
+    if (lifts[0]?.id && lifts[0].v >= LIFT_MIN && lifts[0].v - (lifts[1]?.v ?? -1) >= LIFT_GAP) selfId = lifts[0].id;
   }
 
   // Quem grava aparece como "Você" (ou com o nome, no quadrinho), e o próprio vídeo é espelhado.
@@ -262,6 +299,7 @@
       history.set(p.el, h);
     }
     learnSelf(named);
+    learnSelfByLift(named);
     const mine = named.find((p) => isSelf(p.el, p.name, all) && bare(p.name) && !SELF.test(bare(p.name)));
     if (mine && bare(mine.name) !== myName) {
       myName = bare(mine.name);
@@ -271,7 +309,7 @@
     groupTicks = others.length >= 2 ? groupTicks + 1 : 0;
     let name = "";
     if (others.length === 1) name = others[0].name; // só uma outra pessoa na chamada: é ela quem fala
-    else if (others.length >= 2 && !useCaptions && !onlyMeTalking()) name = pickSpeaker(others, named.find((p) => isSelf(p.el, p.name, all)));
+    else if (others.length >= 2 && !useCaptions && !onlyMeTalking() && (selfId || !myVoiceNow())) name = pickSpeaker(others, named.find((p) => isSelf(p.el, p.name, all)));
     if (!name) return;
     const now = Date.now();
     if (name === sent.name && now - sent.at < REPEAT_MS) return; // não repete a cada leitura
@@ -319,6 +357,9 @@
       selfId = "";
       soloReads = 0;
       soloHits.clear();
+      readsOn = readsOff = 0;
+      liftOn.clear();
+      liftOff.clear();
       timer = setInterval(tick, POLL_MS);
     }
   }
