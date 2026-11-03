@@ -66,6 +66,7 @@
     outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted, ativa: t.enabled })),
     conexoes: [...pcs].map((p) => p.connectionState),
     pico: { ...peak }, // maior volume (0 a 1) desde o início da captura: "outros" em 0 = chega mudo
+    quadrosNaTela: document.querySelectorAll("[data-participant-id]").length, // compare com o tamanho de "outros": se tiver gente na tela e "outros" vazio, a captura não achou a faixa delas
     elementos: [...document.querySelectorAll("audio, video")].map((e) => ({ tag: e.tagName, stream: e.srcObject instanceof MediaStream, faixas: e.srcObject?.getAudioTracks?.().length ?? 0 })),
   });
 
@@ -177,7 +178,7 @@
       ctx,
       attach,
       sources,
-      scanner: setInterval(scan, 2000),
+      scanner: setInterval(scan, 1000), // mais rápido que o padrão (2 s): conexões que entram atrasadas (reunião com várias pessoas) ficam menos tempo sem áudio capturado
       setMicMuted: (muted) => {
         mixes.voce.gain.value = muted ? 0 : 1;
       },
