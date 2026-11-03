@@ -9,6 +9,12 @@
 
   const SELF = /^(voc[eê]|you|tu|usted)$/i; // o Meet chama quem grava de "Você": isso já é a pista do microfone
   const CAPTIONS = /caption|legenda|subt[ií]tulo|sous-titre|untertitel/i;
+  // O botão de microfone do Meet, pelo nome em vários idiomas. "Ativar" (ligar) significa que
+  // hoje está mudo; "Desativar" (desligar) significa que hoje está com som. O Meet continua
+  // escutando o microfone de verdade mesmo mudo (é como ele avisa "você está mudo" se você fala),
+  // então o hook da página precisa deste aviso para não gravar o que você fala enquanto mutado.
+  const MIC_BUTTON = /microfone|microphone|micr[oó]fono|micro\b|mikrofon/i;
+  const MIC_IS_OFF = /ativar|turn on|encender|activer|einschalten/i;
   const CC_BUTTON = /caption|legenda|subt[ií]tulo|sous-titre|untertitel/i;
   const POLL_MS = 250;
   const REPEAT_MS = 700; // enquanto a mesma pessoa fala, reafirma de tempos em tempos
@@ -18,6 +24,7 @@
   let timer = 0;
   let tries = 0;
   let seen = { name: "", text: "", at: 0 };
+  let micMuted = null; // null = ainda não sei; o hook da página só ouve depois do primeiro aviso
 
   // As legendas precisam estar ligadas para eu ler os nomes, mas não precisam aparecer: a barra sai
   // da tela (sem display:none, que faz o Meet parar de atualizar). Por folha adotada, que a política
@@ -76,6 +83,27 @@
       node = node.parentElement;
     }
     return found;
+  }
+
+  // Lê se o seu microfone está mudo no próprio Meet (não no sistema): o botão guarda isso em
+  // data-is-muted nas versões mais novas; nas mais antigas só dá para saber pelo texto do botão.
+  function micButtonMuted() {
+    for (const button of document.querySelectorAll("button[aria-label]")) {
+      const label = button.getAttribute("aria-label") || "";
+      if (!MIC_BUTTON.test(label)) continue;
+      const flag = button.getAttribute("data-is-muted");
+      if (flag === "true") return true;
+      if (flag === "false") return false;
+      return MIC_IS_OFF.test(label); // "Ativar microfone" = hoje está mudo
+    }
+    return null; // não achei o botão: não dá para saber, melhor não arriscar
+  }
+
+  function checkMic() {
+    const muted = micButtonMuted();
+    if (muted === null || muted === micMuted) return;
+    micMuted = muted;
+    window.postMessage({ escutaMeet: true, from: "speakers", type: "mic-mute", muted }, location.origin);
   }
 
   function enableCaptions() {
@@ -225,16 +253,16 @@
   }
 
   // Quem grava aparece como "Você" (ou com o nome, no quadrinho), e o próprio vídeo é espelhado.
+  // Havia aqui um palpite extra para chamada de duas pessoas ("o quadro menor é o seu"), tirado:
+  // câmera desligada, avatar em vez de vídeo ou um quadro simplesmente maior que o outro bastam
+  // para ele acertar o quadro trocado — aí o seu nome (e tudo que você fala) sai atribuído à
+  // outra pessoa na ata inteira. Sem palpite por tamanho, sobra a leitura por voz abaixo
+  // (learnSelf/learnSelfByLift), que não adivinha: só decide depois de ouvir você falar.
   function isSelf(el, name, all) {
     if (selfId) return tileId(el) === selfId; // descoberto pela minha voz: vale mais que qualquer palpite abaixo
     if (SELF.test(name) || /\((voc[eê]|you)\)/i.test(name)) return true;
     const video = el.querySelector("video");
     if (video && /^matrix\(-1,/.test(getComputedStyle(video).transform)) return true;
-    if (all.length === 2) {
-      const area = (n) => n.getBoundingClientRect().width * n.getBoundingClientRect().height;
-      const [a, b] = all;
-      return el === (area(a) <= area(b) ? a : b); // com duas pessoas, o quadro menor é o seu
-    }
     return false;
   }
 
@@ -320,6 +348,7 @@
   }
 
   function tick() {
+    checkMic();
     tickTiles();
     // Opcional: com a opção ligada, em reunião com várias pessoas o nome vem das legendas do Meet (escondidas da tela),
     // em vez da animação do quadro.
@@ -351,6 +380,7 @@
     if (on) {
       tries = 0;
       seen = { name: "", text: "", at: 0 };
+      micMuted = null;
       myName = "";
       current = "";
       sent = { name: "", at: 0 };

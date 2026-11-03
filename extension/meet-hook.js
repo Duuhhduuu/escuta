@@ -19,6 +19,12 @@
   let inCall = false;
   let endTimer = 0;
   let capture = null;
+  // O Meet silencia o microfone por conta própria (ele continua recebendo o áudio bruto do
+  // getUserMedia para avisar "você está mudo" quando você fala): a faixa que capturamos aqui
+  // segue viva mesmo com o botão de microfone desligado. Sem isto, a gravação ouvia e
+  // transcrevia o que você falava mesmo mutado na chamada. O nome e o estado vêm do
+  // meet-speakers.js, que lê o botão de microfone na tela.
+  let micMuted = false;
 
   // ---- o que o Meet usa ----------------------------------------------------------------
 
@@ -102,6 +108,7 @@
     const ctx = new AudioContext({ sampleRate: RATE });
     const merger = ctx.createChannelMerger(2); // 0 = você, 1 = participantes
     const mixes = { voce: ctx.createGain(), outros: ctx.createGain() };
+    mixes.voce.gain.value = micMuted ? 0 : 1; // começa já respeitando o mudo, se o Meet já estava assim
     mixes.voce.connect(merger, 0, 0);
     mixes.outros.connect(merger, 0, 1);
 
@@ -166,7 +173,15 @@
         }
       }
     };
-    capture = { ctx, attach, sources, scanner: setInterval(scan, 2000) };
+    capture = {
+      ctx,
+      attach,
+      sources,
+      scanner: setInterval(scan, 2000),
+      setMicMuted: (muted) => {
+        mixes.voce.gain.value = muted ? 0 : 1;
+      },
+    };
     for (const track of locals) attach("voce", track);
     for (const track of remotes) attach("outros", track);
     scan();
@@ -183,8 +198,13 @@
 
   window.addEventListener("message", (event) => {
     const data = event.data;
-    if (event.source !== window || !data?.escutaMeet || data.from !== "bridge") return;
-    if (data.cmd === "start") startCapture();
-    else if (data.cmd === "stop") stopCapture();
+    if (event.source !== window || !data?.escutaMeet) return;
+    if (data.from === "bridge") {
+      if (data.cmd === "start") startCapture();
+      else if (data.cmd === "stop") stopCapture();
+    } else if (data.from === "speakers" && data.type === "mic-mute") {
+      micMuted = Boolean(data.muted);
+      capture?.setMicMuted(micMuted);
+    }
   });
 })();
