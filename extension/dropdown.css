@@ -1,0 +1,19 @@
+/* ---- menu suspenso próprio (no lugar da lista nativa do <select>) ---- */
+.dd-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.dd { position: relative; }
+.dd-trigger { display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--field); color: var(--ink); font: 400 13.5px/1 var(--sans); text-align: left; }
+.dd-trigger:hover, .dd-trigger[aria-expanded="true"] { border-color: var(--acc); }
+.dd-text { font: inherit; color: inherit; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-chev { flex: none; color: var(--mute); transition: transform 120ms ease; }
+.dd-trigger[aria-expanded="true"] .dd-chev { transform: rotate(180deg); }
+.dd--compact { display: inline-block; }
+.dd--compact .dd-trigger { width: auto; height: 32px; padding: 0 12px; font: 500 12.5px/1 var(--sans); }
+.dd-menu { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; min-width: 100%; max-height: 280px; overflow-y: auto; margin: 0; padding: 6px; list-style: none; border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: 0 18px 40px rgba(14, 20, 36, 0.22); }
+.dd--compact .dd-menu { min-width: 200px; }
+.dd-menu[hidden] { display: none; }
+.dd-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.3; white-space: nowrap; cursor: pointer; }
+.dd-item::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: transparent; }
+.dd-item[aria-selected="true"]::before { background: var(--acc); }
+.dd-item[aria-selected="true"] { font-weight: 600; }
+.dd-item.is-active, .dd-item:hover { background: var(--card2); }
+@media (prefers-reduced-motion: reduce) { .dd-chev { transition: none; } }

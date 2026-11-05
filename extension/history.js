@@ -35,6 +35,7 @@ function fillChats() {
     ...(voice.some((e) => !e.chat) ? [new Option("Sem conversa (salvas antes)", "\u0000")] : []),
   );
   select.value = [...select.options].some((o) => o.value === current) ? current : "";
+  select.sync?.();
 }
 
 // ---- busca sem acento e sem maiúscula ---------------------------------------
@@ -694,6 +695,7 @@ function meetingDetail(m, terms) {
     pick.append(...templates.map((t) => new Option(t.name, t.id)));
     pick.value = templates.some((t) => t.id === m.template) ? m.template : templates[0].id;
     bar.append(pick, button(m.minutes ? "Refazer ata" : "Gerar ata", () => send({ type: "meeting-minutes", id: m.id, template: pick.value })));
+    dropdown(pick, true); // o menu próprio entra logo depois do <select>, que fica escondido
   }
   if (m.status === "failed") bar.append(retryButton());
   bar.append(erase);
@@ -865,6 +867,8 @@ $("q").addEventListener("input", () => {
   clearTimeout(typing);
   typing = setTimeout(render, 120);
 });
+dropdown($("kind"));
+dropdown($("chat"));
 $("chat").addEventListener("change", render);
 $("kind").addEventListener("change", render);
 
