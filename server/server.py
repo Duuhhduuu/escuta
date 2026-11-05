@@ -438,6 +438,8 @@ def transcribe_live(pcm, model, language, prompt, strict=False):
         return []
     model = canonical_model(model)
     language = None if language == "auto" else language
+    peak = float(np.max(np.abs(samples)))  # antes de subir o volume: é o que diz se a janela é fraca
+    window = len(samples) / 16000
     samples = boost(samples)
     # O fim da fala anterior (sem murmúrios) ajuda nomes e a pontuação a continuar. No começo, sem fala
     # anterior, a dica fixa segura o idioma: era aí que o texto vinha torto ou em outra língua.
@@ -496,7 +498,7 @@ def transcribe_live(pcm, model, language, prompt, strict=False):
             _faster_models.clear()
             return run("cpu", "int8")
 
-    return meeting.live_segments(whisper_worker.submit(job).result(), language or "auto", strict)
+    return meeting.live_segments(whisper_worker.submit(job).result(), language or "auto", strict, peak, window)
 
 
 def transcribe_meeting(audio, model, language, emit):

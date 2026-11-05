@@ -228,7 +228,13 @@ def ask_message(question, transcript, minutes="", notes="", history=None, limit=
 
 # O Whisper, diante de um trecho quase mudo, "escuta" frases de fim de vídeo. Numa janela
 # de poucos segundos isso acontece bastante; na gravação inteira o VAD já segura a maioria.
-HALLUCINATIONS = ("Legendas pela comunidade", "Amara.org", "Obrigado por assistir", "Inscreva-se no canal")
+HALLUCINATIONS = ("Legendas pela comunidade", "Amara.org", "Obrigado por assistir", "Inscreva-se no canal", "A gente não tem nada", "Acesse o nosso site", "www.")
+
+# Quando o áudio da janela é fraco (voz longe, só respiração ou sala), o Whisper "escuta" uma despedida: é o palpite
+# favorito dele para quase-silêncio, e vem com a mesma confiança de uma fala de verdade. Em volume normal essas
+# palavras passam; em áudio fraco e curto elas não valem o risco de aparecer sem ninguém ter dito.
+FAINT_PEAK = 0.06
+FAINT_SUSPECT = {"obrigado", "obrigada", "muito obrigado", "muito obrigada", "tchau", "e aí", "até mais", "até logo", "amém", "tchau tchau", "valeu"}
 
 
 # Murmúrios que o Whisper escreve onde só há respiração ou "uhum" ao fundo. Sozinhos não dizem nada e,
@@ -319,14 +325,20 @@ def is_repetition(text):
     return len(words) >= 3 and len(set(words)) <= max(1, len(words) // 3)
 
 
-def clean_live(segments, language="pt", strict=False):
+def clean_live(segments, language="pt", strict=False, peak=None, window=None):
     """Trechos de uma janela ao vivo que valem mostrar: tira vazio, murmúrio, silêncio com palpite e frase de fim de vídeo.
     strict é para o texto provisório, que é um palpite sobre uma frase pela metade: só passa o que o modelo tem
     confiança de ter ouvido, para não mostrar lixo em cinza."""
     keep = []
+    faint = peak is not None and peak < FAINT_PEAK
     for seg in segments:
         text = seg["text"].strip()
         if not text or _is_filler(text) or _is_cough(text) or is_repetition(text) or looks_gibberish(text):
+            continue
+        # Trecho mais longo que a própria janela: o Whisper esticou um palpite pelo silêncio inteiro.
+        if window and seg["end"] - seg["start"] > window + 0.5:
+            continue
+        if faint and _norm(text) in FAINT_SUSPECT:
             continue
         # O provisório é um palpite sobre uma frase pela metade, mas exigir confiança alta demais escondia as
         # primeiras palavras e fazia o texto demorar a aparecer. O lixo (letras trocadas, repetição, inglês
@@ -354,10 +366,10 @@ def sound_label(text):
     return "hum" if _is_filler(text) else "ruído"
 
 
-def live_segments(segments, language="pt", strict=False):
+def live_segments(segments, language="pt", strict=False, peak=None, window=None):
     """A fala de clean_live e, no texto definitivo, também os sons que não são fala (hum, tosse, ruído).
     A pessoa vê que o som foi ouvido, em vez de lixo escrito ou de um buraco que parece falha."""
-    speech = clean_live(segments, language, strict)
+    speech = clean_live(segments, language, strict, peak, window)
     if strict:
         return speech
     kept = {(s["start"], s["end"]) for s in speech}
