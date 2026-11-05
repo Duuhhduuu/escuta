@@ -228,15 +228,16 @@ button.back:hover { color: var(--ink); border-color: var(--line); }
 .d-head h2 { margin: 0 0 6px; font: 700 28px/1.1 var(--display); letter-spacing: -0.04em; }
 .d-meta { margin: 0; color: var(--mute); font-size: 13px; text-transform: capitalize; }
 .d-meta { text-transform: none; }
-.tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
-button.tab { padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--mute); font-size: 13.5px; }
-button.tab[aria-selected="true"] { border-bottom-color: var(--acc); color: var(--ink); font-weight: 600; }
+/* Abas em pílula, como no desenho: a ativa é âmbar. */
+.tabs { display: inline-flex; align-self: flex-start; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+button.tab { padding: 8px 18px; border: 0; border-radius: 999px; color: var(--mute); font-size: 13px; font-weight: 600; }
+button.tab[aria-selected="true"] { background: var(--acc); color: var(--acc-ink); }
 .pane[hidden] { display: none; }
 .detail .minutes { font: 400 15px/1.65 var(--sans); }
 .detail .transcript { margin-top: 0; max-height: none; border: 0; background: none; padding: 0; }
 
 /* ---- resumo e conversa na reunião aberta ---- */
-.summary-card { padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--acc); border-radius: 4px 14px 14px 4px; background: var(--card); }
+.summary-card { padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
 .summary-card .label { margin-bottom: 6px; font: 500 10.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
 .summary-card .md p { margin: 0; font-size: 15px; }
 .chat { display: flex; flex-direction: column; gap: 12px; }
@@ -261,7 +262,20 @@ button.chip-btn:hover { border-color: var(--acc); }
 .chat-form button:disabled { opacity: 0.5; cursor: default; }
 
 /* ---- objetivo da reunião ---- */
-.goal-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.goal-card { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+
+/* ---- a ata: um cartão por seção ---- */
+.minutes { display: flex; flex-direction: column; gap: 12px; }
+.sec { padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+.sec .label { margin-bottom: 10px; font: 500 10.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+.sec .md > :last-child { margin-bottom: 0; }
+.sec .md h2, .sec .md h3 { margin-top: 0.8em; font-size: 15px; }
+.sec .md ul { list-style: none; padding-left: 0; }
+.sec .md ul > li { position: relative; padding-left: 18px; margin: 0.45em 0; }
+.sec .md ul > li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); }
+.sec--todo .md ul > li { padding: 10px 0 10px 30px; margin: 0; border-top: 1px solid var(--line); }
+.sec--todo .md ul > li:first-child { border-top: 0; }
+.sec--todo .md ul > li::before { left: 0; top: 11px; width: 18px; height: 18px; box-sizing: border-box; border-radius: 6px; background: none; border: 1.5px solid var(--mute); }
 .goal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .goal-head .label { font: 500 10.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
 .goal-input { width: 100%; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--ink); font: 600 15px/1.4 var(--sans); }

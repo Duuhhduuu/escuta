@@ -405,6 +405,7 @@ function meetingRow(m, terms) {
 
 // O resumo do topo: o primeiro trecho da ata que é texto corrido (uma lista ou tabela não resume nada).
 const GOAL_TITLE = /^objetivo da reuni/i;
+const TODO_TITLE = /pend[eê]ncia|quem faz o qu[eê]|a[cç][õo]es|pr[óo]ximos passos|tarefas|a fazer/i;
 
 function sectionsOf(minutes) {
   const body = (minutes || "").replace(/^#\s+.+\n+/, "");
@@ -594,9 +595,20 @@ function meetingDetail(m, terms) {
   const ata = el("div", "pane");
   if (m.minutes) {
     // O assunto já está no topo; tira o título repetido da ata.
-    const body = m.minutes.replace(/^#\s+.+\n+/, "");
     const wrap = el("div", "minutes");
-    wrap.append(markdown(body, terms));
+    const { pre, list } = sectionsOf(m.minutes);
+    // Cada seção da ata vira um cartão, como no desenho da marca. Pendências viram uma lista de caixinhas.
+    const card = (title, text) => {
+      const box = el("section", `sec${TODO_TITLE.test(title) ? " sec--todo" : ""}`);
+      if (title) box.append(el("div", "label", title));
+      const body = el("div", "md");
+      body.append(markdown(text, terms));
+      box.append(body);
+      return box;
+    };
+    if (pre) wrap.append(card("", pre));
+    for (const s of list) if (s.text) wrap.append(card(s.title, s.text));
+    if (!pre && !list.length) wrap.append(card("", m.minutes.replace(/^#\s+.+\n+/, "")));
     ata.append(wrap);
   } else {
     ata.append(el("p", "error", m.minutesError || "A ata não foi gerada."));
