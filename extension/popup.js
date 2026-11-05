@@ -1,7 +1,7 @@
 const DEFAULTS = {
   language: "pt",
   whisperModel: "large-v3-turbo",
-  ollamaModel: "qwen2.5:7b",
+  ollamaModel: "qwen2.5:3b-instruct",
   autoTranscribe: false,
   autoSummary: true,
 };

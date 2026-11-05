@@ -9,6 +9,7 @@
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
 # Liga as sequências ANSI no console clássico do Windows 10.
 try {
@@ -56,18 +57,35 @@ Clear-Host
 Cabecalho 0 | ForEach-Object { Write-Host $_ }
 Write-Host "  ${BRA}O que vai acontecer${RST}"
 Write-Host "  ${CIN}·${RST} instalar o Escuta em ${BRA}$Pasta${RST}"
-Write-Host "  ${CIN}·${RST} preparar o Python e o Whisper (alguns minutos na primeira vez; baixa até ~2 GB)"
+Write-Host "  ${CIN}·${RST} instalar o Python se faltar e preparar o Whisper"
+Write-Host "  ${CIN}·${RST} configurar resumos com Ollama (local) ou Gemini (nuvem)"
+Write-Host "  ${CIN}·${RST} no Ollama, baixar um modelo local (~1,9 GB) se faltar"
 Write-Host "  ${CIN}·${RST} ligar o servidor local e abrir a extensão no Chrome"
-Write-Host "  ${CIN}·${RST} se faltar o Python 3, instalo por você (winget)"
 Write-Host ''
 if (-not (Pergunta 'Continuar?' $true)) { Write-Host "`n  Tudo bem, nada foi instalado.`n"; return }
 $Autostart = if ($env:ESCUTA_AUTOSTART -eq '0') { $false } else { Pergunta 'Ligar o Escuta sozinho quando o Windows iniciar (sem janela)?' $true }
 $Chave = ''
+$Resumo = 'ollama'
 if (-not $Sim) {
   Write-Host ''
-  Write-Host "  ${CIN}Resumos pelo Gemini: pegue uma chave em aistudio.google.com/apikey.${RST}"
-  Write-Host "  ${CIN}Só o texto já transcrito sai da máquina. Enter para pular e usar o Ollama (local).${RST}"
-  $Chave = (Read-Host "  ${AMB}?${RST} Chave do Gemini").Trim()
+  Write-Host "  ${CIN}Ollama roda localmente e é a opção recomendada. Gemini usa a nuvem do Google.${RST}"
+  Write-Host "  ${AMB}1${RST} Ollama (local, padrão)    ${AMB}2${RST} Gemini (nuvem)"
+  $escolha = (Read-Host "  ${AMB}?${RST} Como quer gerar resumos e atas? [1/2]").Trim()
+  if ($escolha -match '^(2|gemini)$') {
+    $Resumo = 'gemini'
+    $envExistente = Join-Path $Pasta 'server\.env'
+    $chaveExistente = ''
+    if (Test-Path $envExistente) {
+      $linhaChave = Get-Content $envExistente | Where-Object { $_ -match '^\s*GEMINI_API_KEY\s*=' } | Select-Object -Last 1
+      if ($linhaChave) { $chaveExistente = (($linhaChave -split '=', 2)[1]).Trim().Trim('"').Trim("'") }
+    }
+    if ($chaveExistente -and (Pergunta 'Já existe uma chave Gemini. Reutilizar?' $true)) {
+      $Chave = $chaveExistente
+    } else {
+      Write-Host "  ${CIN}Pegue uma chave em aistudio.google.com/apikey.${RST}"
+      do { $Chave = (Read-Host "  ${AMB}?${RST} Chave do Gemini").Trim() } while (-not $Chave)
+    }
+  }
 }
 
 # ---------- etapas ----------
@@ -160,21 +178,73 @@ try {
 
   # 1. Python
   $r1 = Etapa 0 {
+    param($log)
+    function AtualizaPath {
+      $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+      $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+      $env:Path = "$machinePath;$userPath;$env:Path"
+    }
     function Testa($c) {
       $o = & cmd /c "$c --version 2>&1"
       if ($LASTEXITCODE -eq 0 -and "$o" -match 'Python (3\.(\d+)\.\d+)' -and [int]$Matches[2] -ge 9) { return $Matches[1] }
     }
-    foreach ($c in 'py -3', 'python', 'python3') {
-      $v = Testa $c
-      if ($v) { return @{ Ok = $true; Py = $c; Feito = "Python $($v -replace '\.\d+$','') encontrado"; Det = $v } }
+    function ProcuraPython {
+      AtualizaPath
+      foreach ($c in 'py -3', 'python', 'python3') {
+        $v = Testa $c
+        if ($v) { return @{ Py = $c; Versao = $v } }
+      }
+      $bases = @((Join-Path $env:LOCALAPPDATA 'Programs\Python'), (Join-Path $env:ProgramFiles 'Python'))
+      foreach ($base in $bases) {
+        if (Test-Path $base) {
+          $exe = Get-ChildItem -Path $base -Filter python.exe -File -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if ($exe) {
+            $v = Testa ('"' + $exe.FullName + '"')
+            if ($v) { return @{ Py = '"' + $exe.FullName + '"'; Versao = $v } }
+          }
+        }
+      }
+      return $null
     }
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-      & winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Null
-      $exe = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
-      if (Test-Path $exe) { return @{ Ok = $true; Py = "`"$exe`""; Feito = 'Python 3.12 instalado'; Det = '3.12' } }
+
+    $encontrado = ProcuraPython
+    if ($encontrado) {
+      return @{ Ok = $true; Py = $encontrado.Py; Feito = "Python $($encontrado.Versao -replace '\.\d+$','') encontrado"; Det = $encontrado.Versao }
     }
-    return @{ Ok = $false; Erro = 'Python não encontrado. Instale em python.org e rode de novo.' }
-  } @()
+
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+      & $winget.Source install -e --id Python.Python.3.14 --scope user --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 |
+        Out-File -FilePath $log -Append -Encoding utf8
+      $encontrado = ProcuraPython
+      if ($encontrado) {
+        return @{ Ok = $true; Py = $encontrado.Py; Feito = "Python $($encontrado.Versao -replace '\.\d+$','') instalado"; Det = $encontrado.Versao }
+      }
+    }
+
+    # Fallback oficial para Windows sem winget ou quando o catálogo não consegue instalar.
+    $versao = '3.14.10'
+    $sha256 = '92480239264744fe0386a1bd8275786fefa126e3129e56a68e22b52c73329965'
+    $setup = Join-Path ([IO.Path]::GetTempPath()) "python-$versao-amd64.exe"
+    $destino = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python314'
+    try {
+      Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$versao/python-$versao-amd64.exe" -OutFile $setup -UseBasicParsing
+      if ((Get-FileHash -Path $setup -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha256) {
+        return @{ Ok = $false; Erro = 'A verificação do instalador oficial do Python falhou.' }
+      }
+      $proc = Start-Process -FilePath $setup -ArgumentList @('/quiet', 'InstallAllUsers=0', ('TargetDir="' + $destino + '"'), 'Include_pip=1', 'Include_launcher=0', 'PrependPath=0', 'Include_test=0') -Wait -PassThru
+      if ($proc.ExitCode -ne 0) { return @{ Ok = $false; Erro = "O instalador do Python terminou com código $($proc.ExitCode)." } }
+      $exe = Join-Path $destino 'python.exe'
+      $v = Testa ('"' + $exe + '"')
+      if ($v) { return @{ Ok = $true; Py = '"' + $exe + '"'; Feito = "Python $($v -replace '\.\d+$','') instalado"; Det = $v } }
+    } catch {
+      "Fallback Python: $($_.Exception.Message)" | Out-File -FilePath $log -Append -Encoding utf8
+    } finally {
+      Remove-Item $setup -Force -ErrorAction SilentlyContinue
+    }
+    return @{ Ok = $false; Erro = 'Não consegui instalar o Python. Confira a internet e veja o log para o erro do winget ou do instalador oficial.' }
+  } @($Log)
 
   # 2. Escuta + ambiente
   $null = Etapa 1 {
@@ -215,17 +285,69 @@ try {
 
   # 4. Resumo
   $r4 = Etapa 3 {
-    param($pasta, $chave)
+    param($pasta, $provedor, $chave, $log)
     $env_ = Join-Path $pasta 'server\.env'
-    if ($chave -and -not (Test-Path $env_)) { Set-Content -Path $env_ -Value "GEMINI_API_KEY=$chave" -Encoding ASCII }
-    $temChave = (Test-Path $env_) -and ((Get-Content $env_ -Raw) -match '(?m)^GEMINI_API_KEY=\S')
-    if ($temChave) { return @{ Ok = $true; Feito = 'Resumo pelo Gemini'; Det = 'Gemini' } }
-    $ollama = $false
-    try { Invoke-WebRequest -Uri 'http://127.0.0.1:11434/api/tags' -UseBasicParsing -TimeoutSec 3 | Out-Null; $ollama = $true } catch {}
-    if (-not $ollama -and (Get-Command ollama -ErrorAction SilentlyContinue)) { $ollama = $true }
-    if ($ollama) { return @{ Ok = $true; Feito = 'Resumo pelo Ollama'; Det = 'Ollama' } }
-    return @{ Ok = $true; Aviso = $true; Feito = 'Resumo: falta o Ollama ou uma chave do Gemini'; Det = 'ollama.com/download' }
-  } @($Pasta, $Chave)
+    $linhas = if (Test-Path $env_) { @(Get-Content $env_) } else { @() }
+    $linhas = @($linhas | Where-Object { $_ -notmatch '^\s*ESCUTA_SUMMARY_PROVIDER\s*=' })
+    if ($provedor -eq 'gemini') {
+      if (-not $chave) { return @{ Ok = $false; Erro = 'A chave do Gemini está vazia.' } }
+      $linhas = @($linhas | Where-Object { $_ -notmatch '^\s*GEMINI_API_KEY\s*=' })
+      $linhas += "GEMINI_API_KEY=$chave"
+      $linhas += 'ESCUTA_SUMMARY_PROVIDER=gemini'
+      Set-Content -Path $env_ -Value $linhas -Encoding ASCII
+      return @{ Ok = $true; Feito = 'Resumo pelo Gemini'; Det = 'Gemini' }
+    }
+    $linhas += 'ESCUTA_SUMMARY_PROVIDER=ollama'
+    Set-Content -Path $env_ -Value $linhas -Encoding ASCII
+
+    $modelo = 'qwen2.5:3b-instruct'
+    function TestaOllama {
+      try { return Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 3 } catch { return $null }
+    }
+    $cli = Get-Command ollama -ErrorAction SilentlyContinue
+    $ollamaExe = if ($cli) { $cli.Source } else { Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe' }
+    if (-not (Test-Path $ollamaExe)) {
+      $winget = Get-Command winget -ErrorAction SilentlyContinue
+      if ($winget) {
+        & $winget.Source install -e --id Ollama.Ollama --scope user --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 |
+          Out-File -FilePath $log -Append -Encoding utf8
+      }
+      $cli = Get-Command ollama -ErrorAction SilentlyContinue
+      $ollamaExe = if ($cli) { $cli.Source } else { Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe' }
+    }
+    if (-not (Test-Path $ollamaExe)) {
+      # Fallback pelo instalador oficial, conferindo a assinatura do fornecedor.
+      $setup = Join-Path ([IO.Path]::GetTempPath()) 'OllamaSetup.exe'
+      try {
+        Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile $setup -UseBasicParsing
+        $sig = Get-AuthenticodeSignature -FilePath $setup
+        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Ollama') {
+          return @{ Ok = $false; Erro = 'Não consegui confirmar a assinatura do instalador do Ollama.' }
+        }
+        $proc = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-') -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { return @{ Ok = $false; Erro = "O instalador do Ollama terminou com código $($proc.ExitCode)." } }
+      } catch {
+        "Fallback Ollama: $($_.Exception.Message)" | Out-File -FilePath $log -Append -Encoding utf8
+        return @{ Ok = $false; Erro = 'Não consegui instalar o Ollama. Confira a internet e o log.' }
+      } finally { Remove-Item $setup -Force -ErrorAction SilentlyContinue }
+      $ollamaExe = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
+    }
+    if (-not (Test-Path $ollamaExe)) { return @{ Ok = $false; Erro = 'O Ollama instalou, mas o comando não apareceu no local esperado.' } }
+
+    $api = TestaOllama
+    if (-not $api) {
+      Start-Process -FilePath $ollamaExe -ArgumentList 'serve' -WindowStyle Hidden
+      for ($i = 0; $i -lt 90 -and -not $api; $i++) { Start-Sleep -Seconds 1; $api = TestaOllama }
+    }
+    if (-not $api) { return @{ Ok = $false; Erro = 'O Ollama foi instalado, mas não iniciou. Abra o aplicativo Ollama e rode o instalador de novo.' } }
+
+    $temModelo = @($api.models | Where-Object { $_.name -eq $modelo -or $_.model -eq $modelo }).Count -gt 0
+    if (-not $temModelo) {
+      & $ollamaExe pull $modelo 2>&1 | Out-File -FilePath $log -Append -Encoding utf8
+      if ($LASTEXITCODE -ne 0) { return @{ Ok = $false; Erro = 'Não consegui baixar o modelo local. Rode o instalador de novo para tentar novamente.' } }
+    }
+    return @{ Ok = $true; Feito = 'Ollama e modelo local prontos'; Det = $modelo }
+  } @($Pasta, $Resumo, $Chave, $Log)
 
   # 5. Servidor
   $null = Etapa 4 {
