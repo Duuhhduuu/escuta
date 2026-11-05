@@ -344,8 +344,8 @@ function card(entry, terms) {
   if (entry.who && entry.chat && entry.who !== entry.chat) who.append(el("span", "who-sub", entry.who));
   const wave = el("div", "wave-row");
   wave.append(waveBars(entry.text), el("span", "dur", fmtDuration(entry.duration) || "0:00"));
-  head.append(el("span", "avatar", initials(name)), who);
-  item.append(head, wave);
+  head.append(el("span", "avatar", initials(name)), who, wave);
+  item.append(head);
   if (entry.at) item.append(el("span", "item-when", fmtDate(entry.at)));
 
   const text = el("p", "text");

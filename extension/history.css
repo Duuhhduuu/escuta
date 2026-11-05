@@ -61,6 +61,9 @@ header {
 header, main, .empty { max-width: 760px; margin-inline: auto; }
 
 .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.brand-tag { margin-left: auto; color: var(--mute); font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+body.is-detail .brand-tag { display: none; }
+input[type="search"] { padding-left: 42px; background-repeat: no-repeat; background-position: 16px 50%; background-size: 16px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa6b6' stroke-width='1.9' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6.5'/%3E%3Cpath d='M15.5 15.5L20 20'/%3E%3C/svg%3E"); }
 
 h1 { margin: 0; padding-bottom: 3px; font: 700 26px/1 var(--display); letter-spacing: -0.04em; }
 .logo-bg { fill: var(--mb); stroke: var(--mb); }
@@ -105,7 +108,7 @@ main { display: grid; gap: 12px; padding: 16px; }
 .who-sub { color: var(--mute); font-size: 12px; }
 .tagchip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: var(--tag); border: 1px solid var(--tagln); font: 500 10.5px/1 var(--mono); letter-spacing: 0.04em; white-space: nowrap; }
 .tagchip--quiet { background: none; border-color: var(--line); color: var(--mute); }
-.wave-row { display: flex; align-items: center; gap: 10px; color: var(--mute); }
+.wave-row { display: flex; align-items: center; gap: 10px; margin-left: auto; color: var(--mute); }
 .wave { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
 .wave i { display: block; width: 2px; border-radius: 1px; background: currentColor; }
 .dur { font: 11.5px/1 var(--mono); }
