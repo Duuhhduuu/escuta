@@ -2,3 +2,10 @@
 .theme-toggle { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; margin-left: auto; border: 1px solid var(--line); border-radius: 50%; background: var(--card, var(--surf, transparent)); color: var(--mute); cursor: pointer; }
 .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
 .brand-tag + .theme-toggle { margin-left: 12px; }
+
+/* Barra de rolagem fina, arredondada e sem setas, na cor do tema (no lugar da barra cinza larga do navegador). */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: color-mix(in srgb, var(--mute, #9aa6b6) 45%, transparent) padding-box; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--mute, #9aa6b6) 75%, transparent) padding-box; border: 3px solid transparent; }
