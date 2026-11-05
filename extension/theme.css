@@ -1,0 +1,4 @@
+/* Botão de alternar tema (theme.js): círculo discreto no canto do cabeçalho. */
+.theme-toggle { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; margin-left: auto; border: 1px solid var(--line); border-radius: 50%; background: var(--card, var(--surf, transparent)); color: var(--mute); cursor: pointer; }
+.theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+.brand-tag + .theme-toggle { margin-left: 12px; }
