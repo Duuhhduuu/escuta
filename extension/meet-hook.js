@@ -19,6 +19,12 @@
   let inCall = false;
   let endTimer = 0;
   let capture = null;
+  // O Meet silencia o microfone por conta própria (ele continua recebendo o áudio bruto do
+  // getUserMedia para avisar "você está mudo" quando você fala): a faixa que capturamos aqui
+  // segue viva mesmo com o botão de microfone desligado. Sem isto, a gravação ouvia e
+  // transcrevia o que você falava mesmo mutado na chamada. O nome e o estado vêm do
+  // meet-speakers.js, que lê o botão de microfone na tela.
+  let micMuted = false;
 
   // ---- o que o Meet usa ----------------------------------------------------------------
 
@@ -59,7 +65,9 @@
     voce: [...locals].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
     outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted, ativa: t.enabled })),
     conexoes: [...pcs].map((p) => p.connectionState),
+    micMudo: micMuted, // o que o botão de microfone do Meet disse (false = com som); se continuar ouvindo você mutado, confira aqui
     pico: { ...peak }, // maior volume (0 a 1) desde o início da captura: "outros" em 0 = chega mudo
+    quadrosNaTela: document.querySelectorAll("[data-participant-id]").length, // compare com o tamanho de "outros": se tiver gente na tela e "outros" vazio, a captura não achou a faixa delas
     elementos: [...document.querySelectorAll("audio, video")].map((e) => ({ tag: e.tagName, stream: e.srcObject instanceof MediaStream, faixas: e.srcObject?.getAudioTracks?.().length ?? 0 })),
   });
 
@@ -102,6 +110,7 @@
     const ctx = new AudioContext({ sampleRate: RATE });
     const merger = ctx.createChannelMerger(2); // 0 = você, 1 = participantes
     const mixes = { voce: ctx.createGain(), outros: ctx.createGain() };
+    mixes.voce.gain.value = micMuted ? 0 : 1; // começa já respeitando o mudo, se o Meet já estava assim
     mixes.voce.connect(merger, 0, 0);
     mixes.outros.connect(merger, 0, 1);
 
@@ -166,7 +175,15 @@
         }
       }
     };
-    capture = { ctx, attach, sources, scanner: setInterval(scan, 2000) };
+    capture = {
+      ctx,
+      attach,
+      sources,
+      scanner: setInterval(scan, 1000), // mais rápido que o padrão (2 s): conexões que entram atrasadas (reunião com várias pessoas) ficam menos tempo sem áudio capturado
+      setMicMuted: (muted) => {
+        mixes.voce.gain.value = muted ? 0 : 1;
+      },
+    };
     for (const track of locals) attach("voce", track);
     for (const track of remotes) attach("outros", track);
     scan();
@@ -183,8 +200,13 @@
 
   window.addEventListener("message", (event) => {
     const data = event.data;
-    if (event.source !== window || !data?.escutaMeet || data.from !== "bridge") return;
-    if (data.cmd === "start") startCapture();
-    else if (data.cmd === "stop") stopCapture();
+    if (event.source !== window || !data?.escutaMeet) return;
+    if (data.from === "bridge") {
+      if (data.cmd === "start") startCapture();
+      else if (data.cmd === "stop") stopCapture();
+    } else if (data.from === "speakers" && data.type === "mic-mute") {
+      micMuted = Boolean(data.muted);
+      capture?.setMicMuted(micMuted);
+    }
   });
 })();
