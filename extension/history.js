@@ -784,15 +784,17 @@ function meetingDetail(m, terms) {
   tabs.setAttribute("role", "tablist");
   const labels = { chat: "Perguntar", ata: "Ata", transcript: `Transcrição (${lines.length})` };
   const tabButtons = {};
-  const select = (key) => {
+  const select = (key, animate = false) => {
     ui.tab = key;
     for (const [k, b] of Object.entries(tabButtons)) {
       b.setAttribute("aria-selected", String(k === key));
       panes[k].hidden = k !== key;
     }
+    // Só quando a pessoa troca de aba: a tela é refeita a cada atualização da reunião e o fade não pode repetir a cada uma.
+    if (animate) replay(panes[key], "pane-in");
   };
   for (const key of ["chat", "ata", "transcript"]) {
-    const t = button(labels[key], () => select(key), "tab");
+    const t = button(labels[key], () => select(key, true), "tab");
     t.setAttribute("role", "tab");
     tabButtons[key] = t;
     tabs.append(t);
@@ -802,6 +804,16 @@ function meetingDetail(m, terms) {
   return view;
 }
 
+// Reinicia uma animação de entrada de uma vez só (a classe sai e volta no próximo quadro).
+function replay(node, cls) {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+}
+
+let navigated = false; // true só quando a pessoa mudou de tela (abriu ou voltou), nunca numa atualização de dados
+window.addEventListener("hashchange", () => (navigated = true));
+
 const openMeetingId = () => (location.hash.startsWith("#m:") ? location.hash.slice(3) : "");
 
 function render() {
@@ -810,10 +822,14 @@ function render() {
   // history.html#m:<id> abre a reunião (o popup e a lista usam isso); sem hash, a lista.
   const opened = openMeetingId() && meetings.find((m) => m.id === openMeetingId());
   document.body.classList.toggle("is-detail", Boolean(opened)); // "detail" é a classe do conteúdo: no body, ele virava uma coluna flex e o cabeçalho encolhia
+  const arrived = navigated;
+  navigated = false;
   if (opened) {
-    $("list").replaceChildren(meetingDetail(opened, terms));
+    const view = meetingDetail(opened, terms);
+    $("list").replaceChildren(view);
     $("empty").hidden = true;
     window.scrollTo(0, 0);
+    if (arrived) replay(view, "view-in");
     return;
   }
 
@@ -843,6 +859,7 @@ function render() {
     nodes.push(x.node());
   }
   $("list").replaceChildren(...nodes);
+  if (arrived) replay($("list"), "view-in");
 
   const total = voice.length + meetings.length;
   const some = (n, one, many) => `${n} ${n === 1 ? one : many}`;

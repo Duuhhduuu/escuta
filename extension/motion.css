@@ -41,9 +41,15 @@ button.tab { transition: background-color 150ms ease, color 150ms ease, transfor
 /* Troca de tema: as cores atravessam em 200 ms só no instante do clique (theme.js liga a classe e tira logo depois). */
 html.theme-fade, html.theme-fade * { transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, fill 200ms ease !important; }
 
+/* Trocar de aba e abrir/voltar da reunião: o conteúdo sobe 6 px e aparece, em 180 ms. Só no gesto da pessoa (history.js). */
+@keyframes view-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes view-in-soft { from { opacity: 0; } }
+.pane-in, .view-in { animation: view-in 180ms var(--ease-out); }
+
 @media (prefers-reduced-motion: reduce) {
   button, .dd-trigger, .theme-toggle, button.tab, .dd-chev, .dd-item, .mcard, .item { transition: none; }
   button:active, .dd-trigger:active, .theme-toggle:active { transform: none; }
   .dd-menu:not([hidden]) { transition: none; }
   html.theme-fade, html.theme-fade * { transition: none !important; }
+  .pane-in, .view-in { animation: view-in-soft 120ms ease; } /* sem movimento: só o fade */
 }
