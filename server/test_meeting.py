@@ -106,6 +106,21 @@ class Live(unittest.TestCase):
     def test_missing_scores_do_not_break(self):
         self.assertEqual(len(meeting.clean_live([{"start": 0, "end": 1, "text": "ok"}])), 1)
 
+    def test_audio_fraco_nao_vira_despedida(self):
+        seg = lambda text: [{"start": 0, "end": 1, "text": text, "no_speech": 0.0, "logprob": -0.6}]
+        # voz fraca e curta: "Obrigado." é o palpite do Whisper para quase-silêncio
+        for text in ("Obrigado.", "Obrigada.", "Muito obrigado.", "E aí", "Tchau!"):
+            self.assertEqual(meeting.clean_live(seg(text), peak=0.02, window=2.0), [], text)
+        # em volume normal a mesma palavra é fala de verdade; palavras comuns passam mesmo com áudio fraco
+        self.assertEqual(len(meeting.clean_live(seg("Obrigado."), peak=0.3, window=2.0)), 1)
+        self.assertEqual(len(meeting.clean_live(seg("Sim."), peak=0.02, window=2.0)), 1)
+        self.assertEqual(len(meeting.clean_live(seg("Obrigado."))), 1)  # sem medida, não corta
+
+    def test_trecho_maior_que_a_janela_e_descartado(self):
+        out = meeting.clean_live([{"start": 0, "end": 30.0, "text": "A gente fala.", "no_speech": 0.0, "logprob": -1.5}], peak=0.1, window=2.0)
+        self.assertEqual(out, [])
+        self.assertEqual(meeting.clean_live([{"start": 0, "end": 1, "text": "Acesse o nosso site www.exemplo.com", "no_speech": 0, "logprob": -0.5}]), [])
+
 
 class Merge(unittest.TestCase):
     def test_orders_by_time_and_labels_channels(self):
