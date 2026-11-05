@@ -1,0 +1,49 @@
+/* Movimento da interface, pelas regras de design engineering do Emil Kowalski:
+   - só o que o usuário vê muitas vezes e que diz algo (clique, abrir menu, trocar tema); nada em ação de teclado;
+   - propriedades certas (transform e opacity; cor só quando é a própria mudança), nunca "transition: all";
+   - saída das listas é instantânea, entrada em 150 ms com ease-out forte (ease-in deixa o menu pesado);
+   - nunca nascer de scale(0); tudo some com prefers-reduced-motion. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --press: 160ms;
+}
+
+/* Tudo que se aperta confirma o clique: afunda um pouquinho. */
+button, .dd-trigger, .theme-toggle {
+  transition: transform var(--press) var(--ease-out), border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+button:active, .dd-trigger:active, .theme-toggle:active { transform: scale(0.97); }
+button:disabled:active { transform: none; }
+
+/* Abas em pílula: a cor da ativa troca em vez de pular. */
+button.tab { transition: background-color 150ms ease, color 150ms ease, transform var(--press) var(--ease-out); }
+
+/* Menu suspenso: abre a partir do botão (origem no topo), pequeno e rápido; fechar é instantâneo. */
+.dd-menu { transform-origin: top center; }
+.dd--compact .dd-menu { transform-origin: top left; }
+.dd-menu:not([hidden]) {
+  opacity: 1;
+  transform: none;
+  transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out);
+}
+@starting-style {
+  .dd-menu:not([hidden]) { opacity: 0; transform: translateY(-4px) scale(0.97); }
+}
+.dd-chev { transition: transform 200ms var(--ease-out); }
+.dd-item { transition: background-color 100ms ease; }
+
+/* Hover só onde existe mouse: no toque ele ficaria "grudado" depois do toque. */
+@media (hover: hover) and (pointer: fine) {
+  .mcard, .item { transition: border-color 150ms ease; }
+  .mcard:hover, .item:hover { border-color: color-mix(in srgb, var(--acc) 55%, var(--line)); }
+}
+
+/* Troca de tema: as cores atravessam em 200 ms só no instante do clique (theme.js liga a classe e tira logo depois). */
+html.theme-fade, html.theme-fade * { transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, fill 200ms ease !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  button, .dd-trigger, .theme-toggle, button.tab, .dd-chev, .dd-item, .mcard, .item { transition: none; }
+  button:active, .dd-trigger:active, .theme-toggle:active { transform: none; }
+  .dd-menu:not([hidden]) { transition: none; }
+  html.theme-fade, html.theme-fade * { transition: none !important; }
+}

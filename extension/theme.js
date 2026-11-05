@@ -48,8 +48,10 @@
       try {
         localStorage.setItem(KEY, next);
       } catch {}
+      root.classList.add("theme-fade"); // as cores atravessam em vez de pular; a classe sai logo depois (motion.css)
       apply(next);
       paint();
+      setTimeout(() => root.classList.remove("theme-fade"), 260);
     });
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paint);
     paint();
