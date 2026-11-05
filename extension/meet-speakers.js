@@ -14,7 +14,10 @@
   // escutando o microfone de verdade mesmo mudo (é como ele avisa "você está mudo" se você fala),
   // então o hook da página precisa deste aviso para não gravar o que você fala enquanto mutado.
   const MIC_BUTTON = /microfone|microphone|micr[oó]fono|micro\b|mikrofon/i;
-  const MIC_IS_OFF = /ativar|turn on|encender|activer|einschalten/i;
+  // O verbo vem no começo do nome ("Desativar microfone (ctrl + d)"): "Desativar" contém "ativar",
+  // então comparar pelo começo é o que separa os dois casos.
+  const MIC_ACTION_UNMUTE = /^\s*(ativar|activar|turn on|encender|activer|einschalten|attiva)\b/i; // botão que LIGA => hoje mudo
+  const MIC_ACTION_MUTE = /^\s*(desativar|desactivar|turn off|apagar|d[ée]sactiver|ausschalten|disattiva|silenciar|mute)\b/i; // botão que DESLIGA => hoje com som
   const CC_BUTTON = /caption|legenda|subt[ií]tulo|sous-titre|untertitel/i;
   const POLL_MS = 250;
   const REPEAT_MS = 700; // enquanto a mesma pessoa fala, reafirma de tempos em tempos
@@ -94,7 +97,9 @@
       const flag = button.getAttribute("data-is-muted");
       if (flag === "true") return true;
       if (flag === "false") return false;
-      return MIC_IS_OFF.test(label); // "Ativar microfone" = hoje está mudo
+      if (MIC_ACTION_MUTE.test(label)) return false;
+      if (MIC_ACTION_UNMUTE.test(label)) return true; // "Ativar microfone" = hoje está mudo
+      // outro botão que só cita o microfone (configurações, efeitos): não diz nada, segue procurando
     }
     return null; // não achei o botão: não dá para saber, melhor não arriscar
   }

@@ -65,6 +65,7 @@
     voce: [...locals].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
     outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted, ativa: t.enabled })),
     conexoes: [...pcs].map((p) => p.connectionState),
+    micMudo: micMuted, // o que o botão de microfone do Meet disse (false = com som); se continuar ouvindo você mutado, confira aqui
     pico: { ...peak }, // maior volume (0 a 1) desde o início da captura: "outros" em 0 = chega mudo
     quadrosNaTela: document.querySelectorAll("[data-participant-id]").length, // compare com o tamanho de "outros": se tiver gente na tela e "outros" vazio, a captura não achou a faixa delas
     elementos: [...document.querySelectorAll("audio, video")].map((e) => ({ tag: e.tagName, stream: e.srcObject instanceof MediaStream, faixas: e.srcObject?.getAudioTracks?.().length ?? 0 })),
