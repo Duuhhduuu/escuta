@@ -18,6 +18,7 @@
   // então comparar pelo começo é o que separa os dois casos.
   const MIC_ACTION_UNMUTE = /^\s*(ativar|activar|turn on|encender|activer|einschalten|attiva)\b/i; // botão que LIGA => hoje mudo
   const MIC_ACTION_MUTE = /^\s*(desativar|desactivar|turn off|apagar|d[ée]sactiver|ausschalten|disattiva|silenciar|mute)\b/i; // botão que DESLIGA => hoje com som
+  const MIC_OF_OTHERS = /(microfone|microphone|micr[oó]fono|mikrofon)\s+(de|of|von|da|do|del|d')\s*\S|remotamente|remotely|remotement|aus der ferne/i;
   const CC_BUTTON = /caption|legenda|subt[ií]tulo|sous-titre|untertitel/i;
   const POLL_MS = 250;
   const REPEAT_MS = 700; // enquanto a mesma pessoa fala, reafirma de tempos em tempos
@@ -91,12 +92,17 @@
   // Lê se o seu microfone está mudo no próprio Meet (não no sistema): o botão guarda isso em
   // data-is-muted nas versões mais novas; nas mais antigas só dá para saber pelo texto do botão.
   function micButtonMuted() {
-    for (const button of document.querySelectorAll("button[aria-label]")) {
+    // Em chamada grande cada quadro tem botões que também citam um microfone ("Desativar o som do microfone de Ana",
+    // "Não é possível desativar remotamente o som do microfone de Ivan"). Esses são dos OUTROS: o seu botão é o que
+    // só diz "Ativar/Desativar microfone", e nas versões novas é o que carrega data-is-muted.
+    const mine = [...document.querySelectorAll("button[aria-label]")].filter((button) => {
       const label = button.getAttribute("aria-label") || "";
-      if (!MIC_BUTTON.test(label)) continue;
-      const flag = button.getAttribute("data-is-muted");
-      if (flag === "true") return true;
-      if (flag === "false") return false;
+      return MIC_BUTTON.test(label) && !MIC_OF_OTHERS.test(label);
+    });
+    const flagged = mine.find((button) => ["true", "false"].includes(button.getAttribute("data-is-muted")));
+    if (flagged) return flagged.getAttribute("data-is-muted") === "true";
+    for (const button of mine) {
+      const label = button.getAttribute("aria-label") || "";
       if (MIC_ACTION_MUTE.test(label)) return false;
       if (MIC_ACTION_UNMUTE.test(label)) return true; // "Ativar microfone" = hoje está mudo
       // outro botão que só cita o microfone (configurações, efeitos): não diz nada, segue procurando
