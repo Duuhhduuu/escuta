@@ -28,31 +28,62 @@
 
   // ---- o que o Meet usa ----------------------------------------------------------------
 
-  const devices = navigator.mediaDevices;
-  if (devices?.getUserMedia) {
-    const original = devices.getUserMedia.bind(devices);
-    devices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
-      if (constraints?.audio) for (const track of stream.getAudioTracks()) addTrack(locals, track);
-      return stream;
-    };
-  }
+  // O gancho vale por "realm" (a janela e seus objetos). O Meet pode criar as conexões e pedir o microfone a partir de um
+  // quadro em branco (iframe sem endereço), que tem o próprio RTCPeerConnection original: sem o gancho ali, o som da
+  // chamada passava por conexões que a extensão nunca via. Por isso o gancho é aplicado à janela principal e, no instante
+  // em que alguém pega a janela de um iframe (contentWindow/contentDocument), também a ela.
+  const hooked = new WeakSet();
+  function hookRealm(win) {
+    try {
+      if (!win || hooked.has(win)) return;
+      hooked.add(win);
 
-  const Native = window.RTCPeerConnection;
-  if (Native) {
-    const Hooked = function (...args) {
-      const pc = new Native(...args);
-      pcs.add(pc);
-      pc.addEventListener("track", (event) => {
-        if (event.track.kind === "audio") addTrack(remotes, event.track);
-      });
-      pc.addEventListener("connectionstatechange", () => onConnection(pc));
-      return pc;
-    };
-    Hooked.prototype = Native.prototype;
-    Object.setPrototypeOf(Hooked, Native);
-    window.RTCPeerConnection = Hooked;
-    if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Hooked;
+      const media = win.navigator?.mediaDevices;
+      if (media?.getUserMedia) {
+        const original = media.getUserMedia.bind(media);
+        media.getUserMedia = async (constraints) => {
+          const stream = await original(constraints);
+          if (constraints?.audio) for (const track of stream.getAudioTracks()) addTrack(locals, track);
+          return stream;
+        };
+      }
+
+      const Native = win.RTCPeerConnection;
+      if (Native) {
+        const Hooked = function (...args) {
+          const pc = new Native(...args);
+          pcs.add(pc);
+          pc.addEventListener("track", (event) => {
+            if (event.track.kind === "audio") addTrack(remotes, event.track);
+          });
+          pc.addEventListener("connectionstatechange", () => onConnection(pc));
+          return pc;
+        };
+        Hooked.prototype = Native.prototype;
+        Object.setPrototypeOf(Hooked, Native);
+        win.RTCPeerConnection = Hooked;
+        if (win.webkitRTCPeerConnection) win.webkitRTCPeerConnection = Hooked;
+      }
+    } catch {
+      // quadro de outra origem: não dá para mexer, e não é dele que o Meet tira a chamada
+    }
+  }
+  hookRealm(window);
+
+  for (const [proto, prop, pick] of [
+    [window.HTMLIFrameElement?.prototype, "contentWindow", (v) => v],
+    [window.HTMLIFrameElement?.prototype, "contentDocument", (v) => v?.defaultView],
+  ]) {
+    const desc = proto && Object.getOwnPropertyDescriptor(proto, prop);
+    if (!desc?.get) continue;
+    Object.defineProperty(proto, prop, {
+      ...desc,
+      get() {
+        const value = desc.get.call(this);
+        hookRealm(pick(value));
+        return value;
+      },
+    });
   }
 
   // Uma faixa de entrada (microfone) tem a mesma origem das que o getUserMedia entregou.
@@ -196,6 +227,7 @@
     // Faixas que o Meet liga sem disparar o evento "track" (ou antes de o gancho existir) só
     // aparecem nos receptores da conexão: confere de tempos em tempos enquanto grava.
     const scan = () => {
+      for (const frame of document.querySelectorAll("iframe")) hookRealm(frame.contentWindow);
       for (const pc of pcs) for (const receiver of pc.getReceivers?.() || []) if (receiver.track?.kind === "audio" && !remotes.has(receiver.track)) addTrack(remotes, receiver.track);
       // O que o Meet toca para você sai de elementos <audio>/<video> ligados a um MediaStream:
       // é a voz dos outros, e vale mesmo quando a faixa não passou pelo gancho da conexão.
