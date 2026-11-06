@@ -60,8 +60,10 @@
 
   // Para investigar no console da página do Meet: __escutaDebug()
   const peak = { voce: 0, outros: 0 };
+  let blocks = 0; // blocos de áudio já enviados à extensão
   window.__escutaDebug = () => ({
     gravando: Boolean(capture),
+    contexto: capture ? { estado: capture.ctx.state, blocos: blocks } : null, // "suspended" = o navegador não deixou o áudio rodar; blocos parados = nada sendo enviado
     voce: [...locals].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted })),
     outros: [...remotes].map((t) => ({ id: t.id, estado: t.readyState, mudo: t.muted, ativa: t.enabled })),
     conexoes: [...pcs].map((p) => p.connectionState),
@@ -70,6 +72,27 @@
     quadrosNaTela: document.querySelectorAll("[data-participant-id]").length, // compare com o tamanho de "outros": se tiver gente na tela e "outros" vazio, a captura não achou a faixa delas
     elementos: [...document.querySelectorAll("audio, video")].map((e) => ({ tag: e.tagName, stream: e.srcObject instanceof MediaStream, faixas: e.srcObject?.getAudioTracks?.().length ?? 0 })),
   });
+
+  // Para separar "o Meet não está entregando som" de "o som chega e a captura perde": o que o WebRTC recebeu de áudio,
+  // direto das estatísticas das conexões (nível, energia e pacotes). __escutaStats() no console da chamada.
+  window.__escutaStats = async () => {
+    const out = [];
+    for (const pc of pcs) {
+      const rows = [];
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((r) => {
+          if (r.type === "inbound-rtp" && r.kind === "audio") {
+            rows.push({ ssrc: r.ssrc, pacotes: r.packetsReceived, perdidos: r.packetsLost, nivel: r.audioLevel, energia: r.totalAudioEnergy, amostras: r.totalSamplesReceived, ocultas: r.concealedSamples });
+          }
+        });
+      } catch (e) {
+        rows.push({ erro: String(e) });
+      }
+      out.push({ conexao: pc.connectionState, entradas: rows });
+    }
+    return out;
+  };
 
   function addTrack(set, track) {
     set.add(track);
@@ -153,6 +176,7 @@
         const data = event.inputBuffer.getChannelData(ch);
         for (let i = 0; i < data.length; i++) if (Math.abs(data[i]) > peak[who]) peak[who] = Math.abs(data[i]);
       }
+      blocks++;
       post({ type: "audio", voce, outros }, [voce, outros]);
     };
     const mute = ctx.createGain(); // o processador só roda ligado ao destino; ganho 0 não toca nada
