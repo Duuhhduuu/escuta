@@ -89,7 +89,15 @@
       } catch (e) {
         rows.push({ erro: String(e) });
       }
-      out.push({ conexao: pc.connectionState, entradas: rows });
+      // O nível que vem escrito no próprio pacote (extensão de cabeçalho do RTP): vale mesmo que ninguém esteja decodificando a faixa.
+      const origens = [];
+      for (const receiver of pc.getReceivers?.() || []) {
+        if (receiver.track?.kind !== "audio") continue;
+        try {
+          for (const src of receiver.getSynchronizationSources()) origens.push({ fonte: src.source, nivel: src.audioLevel, faixa: receiver.track.readyState + (receiver.track.muted ? "/muda" : "") });
+        } catch {}
+      }
+      out.push({ conexao: pc.connectionState, entradas: rows, origens });
     }
     return out;
   };
