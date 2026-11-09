@@ -76,3 +76,22 @@ test("código da sala vem do caminho, com ou sem /meet/", () => {
   assert.equal(roomFromPath("/landing"), null);
   assert.equal(roomFromPath("/new"), null);
 });
+
+test("fala parcial que sobrou (id trocado no meio) some da exportação; falas diferentes ficam", () => {
+  const e = (key: string, device: string, text: string, sec: number) => ({ key, deviceId: device, text, version: 1, lang: "", firstAt: sec * 1000, updatedAt: 0 });
+  const room: Room = {
+    code: "abc-defg-hij",
+    startedAt: 0,
+    updatedAt: 0,
+    names: {},
+    entries: {
+      p: e("p", "spaces/s/devices/a", "Então eu acho que", 10), // sobra parcial
+      q: e("q", "spaces/s/devices/a", "Então, eu acho que a gente fecha hoje.", 11), // a fala completa, com outro id
+      r: e("r", "spaces/s/devices/b", "Então eu acho que", 11), // outro aparelho: NÃO é sobra
+      s: e("s", "spaces/s/devices/a", "Sim", 40), // longe no tempo
+      t: e("t", "spaces/s/devices/a", "Sim, claro", 80), // também longe: não funde
+    },
+  };
+  const textos = formatTranscript(room, "txt").trim().split("\n").map((l) => l.replace(/^\[[\d:]+\] [^:]+: /, ""));
+  assert.deepEqual(textos, ["Então, eu acho que a gente fecha hoje.", "Então eu acho que", "Sim", "Sim, claro"]);
+});

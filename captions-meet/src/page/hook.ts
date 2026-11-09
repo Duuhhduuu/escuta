@@ -32,6 +32,8 @@ const WATCHDOG_MS = 1000;
 const FLUSH_MS = 500;
 const HEALTH_CHECK_MS = 5000;
 const REJECT_REPORT_MS = 30_000;
+/** Por quanto tempo depois de uma fala no captions_v2 o canal antigo fica em silêncio. */
+const LEGACY_MUTED_MS = 30_000;
 
 type Win = Window & typeof globalThis;
 
@@ -51,6 +53,7 @@ export function installHook(win: Win, emit: (event: PageEvent) => void, timers?:
   const knownNames: Record<string, string> = {};
   const lastReject = new Map<string, number>();
   let everOpened = false;
+  let v2SeenAt = -Infinity;
 
   const deduper = new Deduper((messages) => emit({ type: "captions", messages }));
   t.setInterval(() => deduper.tick(), FLUSH_MS);
@@ -71,9 +74,13 @@ export function installHook(win: Win, emit: (event: PageEvent) => void, timers?:
     return null; // texto: o Meet não manda legenda assim
   };
 
-  const accept = (decoded: Decoded, channel: RTCDataChannel, ack: boolean) => {
+  const accept = (decoded: Decoded, channel: RTCDataChannel, ack: boolean, label: CaptionLabel) => {
     if (decoded.kind === "rejected") return reportRejected(decoded.reason);
     if (decoded.kind === "control") return;
+    // Os dois canais podem entregar a MESMA fala (ids diferentes, versões diferentes): sem isto a transcrição saía repetida.
+    // Enquanto o captions_v2 estiver entregando, o canal antigo é ignorado.
+    if (label === "captions_v2") v2SeenAt = t.now();
+    else if (t.now() - v2SeenAt < LEGACY_MUTED_MS) return;
     const c = decoded.caption;
     deduper.push({ key: `${c.utteranceId}/${c.deviceId}`, deviceId: c.deviceId, text: c.text, version: c.version, lang: c.lang, at: t.now() });
     if (ack) {
@@ -92,7 +99,7 @@ export function installHook(win: Win, emit: (event: PageEvent) => void, timers?:
       const raw = await toBytes((event as MessageEvent).data);
       if (!raw) return;
       const bytes = await inflateIfGzip(raw).catch(() => raw);
-      accept(label === "captions_v2" ? decodeCaptionsV2(bytes) : decodeLegacyCaptions(bytes), channel, mine && label === "captions_v2");
+      accept(label === "captions_v2" ? decodeCaptionsV2(bytes) : decodeLegacyCaptions(bytes), channel, mine && label === "captions_v2", label);
     });
   };
 

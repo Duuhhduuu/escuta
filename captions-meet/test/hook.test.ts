@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installHook, type PageEvent, type Timers } from "../src/page/hook.ts";
 import { readFields } from "../src/page/protocol.ts";
-import { bytes, DEVICE, text, u8, v2Packet } from "./helpers.ts";
+import { bytes, DEVICE, num, text, u8, v2Packet } from "./helpers.ts";
 
 // ---- peças falsas -------------------------------------------------------------------------------
 
@@ -172,4 +172,24 @@ test("o createDataChannel do Meet continua funcionando (devolve o canal e não q
   const channel = pc.createDataChannel("meet_messages");
   assert.equal(channel.label, "meet_messages");
   assert.equal(pc.created.length, 1);
+});
+
+test("a mesma fala vinda pelos dois canais entra uma vez só: o canal antigo fica mudo enquanto o v2 entrega", async () => {
+  const { pc, events, advance, tick } = setup();
+  pc.remoteOpens(new FakeChannel("collections"));
+  const [v2, legacy] = pc.created as [FakeChannel, FakeChannel];
+  const legacyPacket = u8(bytes(1, [...text(1, DEVICE), ...num(2, 900), ...num(3, 1), ...text(6, "bom dia"), ...num(8, 70)]));
+  v2.receive(v2Packet({ id: 41, version: 1, text: "bom dia" }).buffer);
+  legacy.receive(legacyPacket.buffer);
+  await tick();
+  advance(500);
+  const mensagens = events.flatMap((e) => (e.type === "captions" ? e.messages : []));
+  assert.equal(mensagens.length, 1);
+  assert.equal(mensagens[0]!.key, `41/${DEVICE}`);
+  // passados 30 s sem o v2, o canal antigo volta a valer
+  advance(31_000);
+  legacy.receive(u8(bytes(1, [...text(1, DEVICE), ...num(2, 901), ...num(3, 1), ...text(6, "só pelo antigo"), ...num(8, 70)])).buffer);
+  await tick();
+  advance(500);
+  assert.ok(events.some((e) => e.type === "captions" && e.messages.some((m) => m.text === "só pelo antigo")));
 });
