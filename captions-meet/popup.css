@@ -1,0 +1,19 @@
+:root { --bg: #f6f4ef; --card: #fff; --ink: #0e1424; --mute: #5b6675; --line: #dad6cb; --acc: #ffc53d; --danger: #b42318; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0e1424; --card: #161d32; --ink: #f6f4ef; --mute: #9aa6b6; --line: #2a3354; --danger: #ff8a7a; } }
+* { box-sizing: border-box; }
+body { width: 360px; min-height: 160px; margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+h1 { margin: 0; font: 700 24px/1 system-ui, sans-serif; letter-spacing: -0.04em; }
+.cursor { display: inline-block; width: 0.36em; height: 0.1em; margin-left: 0.08em; border-radius: 0.05em; background: var(--acc); }
+.lead, .empty { margin: 6px 0 14px; color: var(--mute); font-size: 12.5px; }
+main { display: grid; gap: 10px; }
+.room { padding: 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+.room-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.room-code { font: 600 15px/1.2 ui-monospace, "SF Mono", Menlo, monospace; }
+.room-when, .room-count, .room-status { color: var(--mute); font-size: 12px; }
+.room-count, .room-status { margin: 4px 0 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+button { height: 32px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); font: 500 12.5px/1 system-ui, sans-serif; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--acc); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.danger { color: var(--mute); }
+button.danger[data-armed] { color: var(--danger); border-color: var(--danger); }

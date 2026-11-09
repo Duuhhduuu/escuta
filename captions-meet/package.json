@@ -1,0 +1,20 @@
+{
+  "name": "escuta-legendas-meet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pega as legendas do Google Meet pelos canais de dados do WebRTC, sem áudio, sem backend e sem telemetria.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node e2e/captions.e2e.cjs",
+    "test": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}

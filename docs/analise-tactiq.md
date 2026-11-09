@@ -63,7 +63,7 @@ Qualquer outro canal com "caption", "transcri" ou "subtitle" no nome é só regi
 ### 4.3 Abrir o canal de legendas por conta própria
 1. O content script manda o evento `tactiq-rtc` com `{type: "con"}`.
 2. A página espera (até ~5 s, em passos de 100 ms) a conexão marcada pelo canal `collections`.
-3. Nessa conexão, chama `createDataChannel("captions", …)` e `createDataChannel("captions_v2", …)` com `ordered: true`, `maxRetransmits: 10` e um **`id` explícito** vindo de um contador que começa alto (~50001), para não colidir com os ids do Meet.
+3. Nessa conexão, chama `createDataChannel("captions", …)` e `createDataChannel("captions_v2", …)` com `ordered: true`, `maxRetransmits: 10` e um `id` explícito vindo de um contador que começa alto (~50001). *Observação da nossa implementação:* num canal não negociado o Chromium ignora o `id` pedido (testado em Chromium real: o id sai de outro intervalo), então a nossa versão não o envia.
 4. O Meet, ao ver o canal aberto, passa a mandar as legendas por ele. Pelo código, a extensão não liga as legendas na tela para isso; que o Meet entregue **mesmo com a legenda desligada na tela** é uma **inferência** (o código não prova), e é a primeira coisa a validar na prática.
 5. Cuidados: não abrir `captions_v2` duas vezes na mesma conexão (um `WeakSet` marca quem já tem), e um teto de canais "inesperados" (5).
 
