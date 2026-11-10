@@ -111,15 +111,35 @@ class Live(unittest.TestCase):
         # voz fraca e curta: "Obrigado." é o palpite do Whisper para quase-silêncio
         for text in ("Obrigado.", "Obrigada.", "Muito obrigado.", "E aí", "Tchau!"):
             self.assertEqual(meeting.clean_live(seg(text), peak=0.02, window=2.0), [], text)
-        # em volume normal a mesma palavra é fala de verdade; palavras comuns passam mesmo com áudio fraco
-        self.assertEqual(len(meeting.clean_live(seg("Obrigado."), peak=0.3, window=2.0)), 1)
+        # palavras comuns de resposta passam mesmo com áudio fraco ("Obrigado." e "Tchau." curtos caem em qualquer volume:
+        # ver test_despedida_curta_nao_entra_em_nenhum_volume)
         self.assertEqual(len(meeting.clean_live(seg("Sim."), peak=0.02, window=2.0)), 1)
-        self.assertEqual(len(meeting.clean_live(seg("Obrigado."))), 1)  # sem medida, não corta
+        self.assertEqual(len(meeting.clean_live(seg("Valeu."), peak=0.3, window=2.0)), 1)  # "valeu" só cai com áudio fraco
+        self.assertEqual(meeting.clean_live(seg("Valeu."), peak=0.02, window=2.0), [])
 
     def test_trecho_maior_que_a_janela_e_descartado(self):
         out = meeting.clean_live([{"start": 0, "end": 30.0, "text": "A gente fala.", "no_speech": 0.0, "logprob": -1.5}], peak=0.1, window=2.0)
         self.assertEqual(out, [])
         self.assertEqual(meeting.clean_live([{"start": 0, "end": 1, "text": "Acesse o nosso site www.exemplo.com", "no_speech": 0, "logprob": -0.5}]), [])
+
+    def test_despedida_curta_nao_entra_em_nenhum_volume(self):
+        seg = lambda text, start=0.0, end=1.0: [{"start": start, "end": end, "text": text, "no_speech": 0.0, "logprob": -0.4}]
+        for text in ("Tchau.", "Tchau, gente.", "Tchau, vem.", "Tchau, gente. Saúde.", "Obrigada, pessoal!", "Obrigado."):
+            self.assertEqual(meeting.clean_live(seg(text), peak=0.4, window=2.0), [], text)
+        # frase de verdade que só começa assim, ou que dura demais, fica
+        self.assertEqual(len(meeting.clean_live(seg("Obrigado por ter vindo hoje, foi uma ótima reunião."), peak=0.4, window=4.0)), 1)
+        self.assertEqual(len(meeting.clean_live(seg("Tchau", 0.0, 6.0), peak=0.4, window=8.0)), 1)
+        self.assertEqual(len(meeting.clean_live(seg("Oi, tchau"), peak=0.4, window=2.0)), 1)
+        self.assertEqual(meeting.clean_live(seg("E aí", 0.0, 0.5), peak=0.4, window=2.0), [])
+        # sons escritos como palavra
+        for text in ("Ouv.", "Ouf.", "Ooooooo...", "... mmmm...", "O...", "Ah.", "Ah!"):
+            self.assertEqual(meeting.clean_live(seg(text, 0.0, 0.6), peak=0.4, window=2.0), [], text)
+        # interjeição de verdade, mais longa, e respostas curtas comuns ficam
+        self.assertEqual(len(meeting.clean_live(seg("Ah, entendi.", 0.0, 1.5), peak=0.4, window=2.0)), 1)
+        self.assertEqual(len(meeting.clean_live(seg("Ah.", 0.0, 1.8), peak=0.4, window=2.0)), 1)
+        for text in ("Sim.", "Não.", "Ok.", "Oi!", "É.", "Tá."):
+            self.assertEqual(len(meeting.clean_live(seg(text, 0.0, 0.6), peak=0.4, window=2.0)), 1, text)
+        self.assertEqual(len(meeting.clean_live(seg("E aí?", 0.0, 1.6), peak=0.4, window=2.0)), 1)
 
 
 class Merge(unittest.TestCase):
