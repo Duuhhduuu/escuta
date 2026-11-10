@@ -86,17 +86,95 @@ const clockText = (ms) => stamp(Math.max(0, ms) / 1000);
 // Tempo gravado: o parado (pausa) não conta.
 const elapsed = (r) => (r.paused ? r.pausedAt : Date.now()) - r.startedAt - (r.pausedMs || 0);
 
+// ---- a lista de falas ------------------------------------------------------------------------
+// A lista é ATUALIZADA no lugar, não refeita: cada fala tem uma chave e o seu nó fica na tela enquanto existir. Antes, cada
+// atualização apagava e recriava tudo, e a tela piscava, as falas sumiam e voltavam e os nomes trocavam. Agora:
+//  - só o que mudou é mexido (texto, horário, nome);
+//  - o texto provisório vira a fala pronta no MESMO nó (em vez de sumir e a outra aparecer);
+//  - o nome de quem falou só melhora: de "Participantes" para um nome, e fica fixo depois que a fala assenta.
+const rowNodes = new Map(); // chave -> nó
+let painted = false; // depois da primeira pintura, as falas novas entram com um fade curto
+const SETTLE_SECONDS = 6; // depois disso a legenda do Meet já não muda o nome da fala
+
+const rowKey = (r) => (r.pending ? `w|${r.who}|${Math.round(r.start * 10)}` : r.partial ? `p|${r.who}|${r.slot}` : `f|${r.who}|${Math.round(r.start * 10)}`);
+
+function makeRow() {
+  const row = document.createElement("div");
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const at = Object.assign(document.createElement("span"), { className: "at" });
+  const who = Object.assign(document.createElement("span"), { className: "who" });
+  meta.append(at, who);
+  const said = Object.assign(document.createElement("p"), { className: "said" });
+  said.append(Object.assign(document.createElement("span"), { className: "t" }));
+  row.append(meta, said);
+  return row;
+}
+
+// O nó de texto provisório ou "…" que vira esta fala pronta: mesmo lado e começo a até 3 s.
+function adoptable(row, claimed) {
+  for (const node of rowNodes.values()) {
+    if (claimed.has(node) || !node.classList.contains("partial") || node.dataset.who !== row.who) continue;
+    if (Math.abs(Number(node.dataset.start) - row.start) <= 3) return node;
+  }
+  return null;
+}
+
+function updateRow(node, row, key) {
+  const entering = node.classList.contains("enter");
+  node.dataset.key = key;
+  node.dataset.who = row.who;
+  node.dataset.start = String(row.start);
+  node.className = `${row.who === "voce" ? "line me" : "line"}${row.partial ? " partial" : ""}${row.sound ? " sound" : ""}${entering ? " enter" : ""}`;
+  const at = node.querySelector(".at");
+  const stampText = stamp(row.start);
+  if (at.textContent !== stampText) at.textContent = stampText;
+
+  // Nome: só melhora. Um nome específico nunca volta a genérico, e depois de assentar não muda mais.
+  const whoEl = node.querySelector(".who");
+  const specific = Boolean(speakerOf(row)) || (row.who === "voce" && Boolean(meName));
+  if (node.dataset.frozen !== "1") {
+    const wasSpecific = node.dataset.specific === "1";
+    if (!whoEl.textContent || specific || !wasSpecific) {
+      const label = labelOf(row);
+      if (whoEl.textContent !== label) whoEl.textContent = label;
+      node.dataset.specific = specific || wasSpecific ? "1" : "0";
+    }
+    // Só fixa quando já tem nome de verdade: enquanto for genérico ("Participantes"), ainda pode melhorar (por exemplo, quando se
+    // descobre que a chamada é de duas pessoas).
+    const settled = !row.partial && !row.pending && (!rec || elapsed(rec) / 1000 > (row.end ?? row.start) + SETTLE_SECONDS);
+    if (settled && node.dataset.specific === "1") node.dataset.frozen = "1";
+  }
+
+  const text = row.sound ? `(${row.text})` : row.text;
+  const t = node.querySelector(".t");
+  if (t.textContent !== text) t.textContent = text;
+}
+
+let caretEl = null;
+function placeCaret(feed) {
+  if (!caretEl) {
+    caretEl = Object.assign(document.createElement("span"), { className: "caret" });
+    caretEl.setAttribute("aria-hidden", "true");
+  }
+  const last = feed.lastElementChild;
+  const target = rec && last && last.dataset.key && !last.dataset.key.startsWith("w|") ? last.querySelector(".said") : null;
+  if (!target) return caretEl.remove();
+  if (caretEl.parentNode !== target) target.append(caretEl);
+}
+
 function paintFeed() {
   const lines = withoutEcho(live.lines);
   const feed = $("feed");
-  feed.replaceChildren();
   // Texto provisório: a frase ainda em andamento, em cinza. A sua só aparece se não for o eco da dos participantes.
   const tentative = [];
   if (rec && !rec.paused) {
     const others = (live.partial?.outros || []).map((l) => ({ ...l, who: "outros", partial: true }));
     const mine = (live.partial?.voce || []).map((l) => ({ ...l, who: "voce", partial: true })).filter((l) => !others.some((o) => similar(o.text, l.text)));
+    const slots = { voce: 0, outros: 0 };
     tentative.push(...others, ...mine);
     tentative.sort((a, b) => a.start - b.start);
+    for (const l of tentative) l.slot = slots[l.who]++;
   }
   // Janelas ainda sem texto: um "…" na posição do horário delas. Se já há texto provisório daquele lado, é a mesma frase.
   const hasPartial = new Set(tentative.map((t) => t.who));
@@ -106,40 +184,84 @@ function paintFeed() {
           .filter((p) => !hasPartial.has(p.who))
           .map((p) => ({ who: p.who, start: p.t0, end: p.t0, text: "…", partial: true, pending: true }))
       : [];
-  // Tudo por horário: a fala que termina antes não passa à frente da que começou antes e ainda está sendo transcrita
-  // (o texto provisório e o "…" ficavam sempre depois das falas prontas).
+  // Tudo por horário: a fala que termina antes não passa à frente da que começou antes e ainda está sendo transcrita.
   const rows = [...lines, ...tentative, ...pendingRows].sort((a, b) => a.start - b.start);
+
   if (!rows.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    const bars = document.createElement("div");
-    bars.className = "bars";
-    bars.setAttribute("aria-hidden", "true");
-    for (let i = 0; i < 5; i++) bars.append(document.createElement("i"));
-    const text = document.createElement("p");
-    text.textContent = rec
+    rowNodes.clear();
+    let empty = feed.querySelector(".empty");
+    if (!empty) {
+      feed.replaceChildren();
+      empty = document.createElement("div");
+      empty.className = "empty";
+      const bars = document.createElement("div");
+      bars.className = "bars";
+      bars.setAttribute("aria-hidden", "true");
+      for (let i = 0; i < 5; i++) bars.append(document.createElement("i"));
+      empty.append(bars, document.createElement("p"));
+      feed.append(empty);
+    }
+    const message = rec
       ? rec.live
         ? "Aguardando a primeira fala…"
         : "A transcrição ao vivo está desligada nesta gravação. A ata sai quando você parar."
       : "Nada para mostrar aqui.";
-    empty.append(bars, text);
-    feed.append(empty);
+    if (empty.querySelector("p").textContent !== message) empty.querySelector("p").textContent = message;
     return;
   }
-  for (const line of rows) {
-    const row = document.createElement("div");
-    row.className = `${line.who === "voce" ? "line me" : "line"}${line.partial ? " partial" : ""}${line.sound ? " sound" : ""}`;
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    const at = Object.assign(document.createElement("span"), { className: "at", textContent: stamp(line.start) });
-    const who = Object.assign(document.createElement("span"), { className: "who", textContent: labelOf(line) });
-    meta.append(at, who);
-    row.append(meta, Object.assign(document.createElement("p"), { className: "said", textContent: line.sound ? `(${line.text})` : line.text }));
-    feed.append(row);
+  feed.querySelector(".empty")?.remove();
+
+  // 1) quem fica: cada fala acha o seu nó pela chave, ou adota o do texto provisório que ela substitui
+  const claimed = new Set();
+  const plan = [];
+  for (const row of rows.filter((r) => !r.partial)) {
+    const key = rowKey(row);
+    let node = rowNodes.get(key);
+    if (node && claimed.has(node)) node = null;
+    if (!node) {
+      node = adoptable(row, claimed);
+      if (node) rowNodes.delete(node.dataset.key);
+    }
+    plan.push({ row, key, node });
+    if (node) claimed.add(node);
   }
-  // O cursor âmbar fica na última fala enquanto a gravação segue.
-  const last = rows[rows.length - 1]?.pending ? null : feed.lastElementChild?.querySelector(".said");
-  if (rec && last) last.append(Object.assign(document.createElement("span"), { className: "caret", "aria-hidden": "true" }));
+  for (const row of rows.filter((r) => r.partial)) {
+    const key = rowKey(row);
+    let free = rowNodes.get(key);
+    if (free && claimed.has(free)) free = null;
+    if (!free) {
+      // o "…" de uma janela aguardando texto vira o provisório dela no mesmo nó
+      for (const candidate of rowNodes.values()) {
+        if (claimed.has(candidate) || !candidate.dataset.key.startsWith("w|") || candidate.dataset.who !== row.who) continue;
+        if (Math.abs(Number(candidate.dataset.start) - row.start) <= 3) {
+          free = candidate;
+          rowNodes.delete(candidate.dataset.key);
+          break;
+        }
+      }
+    }
+    plan.push({ row, key, node: free });
+    if (free) claimed.add(free);
+  }
+  plan.sort((a, b) => a.row.start - b.row.start);
+
+  // 2) sai o que não é mais necessário
+  for (const node of rowNodes.values()) if (!claimed.has(node)) node.remove();
+  rowNodes.clear();
+
+  // 3) atualiza no lugar e garante a ordem, mexendo só no que está fora dela
+  plan.forEach((item, i) => {
+    const isNew = !item.node;
+    const node = item.node || makeRow();
+    if (isNew && painted) node.classList.add("enter");
+    updateRow(node, item.row, item.key);
+    rowNodes.set(item.key, node);
+    if (feed.children[i] !== node) feed.insertBefore(node, feed.children[i] || null);
+  });
+  while (feed.children.length > plan.length) feed.lastElementChild.remove();
+
+  placeCaret(feed);
+  painted = true;
   const fresh = lines.length > seen;
   seen = lines.length;
   if (stick) feed.scrollTop = feed.scrollHeight;
