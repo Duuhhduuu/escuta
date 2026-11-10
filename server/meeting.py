@@ -234,6 +234,12 @@ HALLUCINATIONS = ("Legendas pela comunidade", "Amara.org", "Obrigado por assisti
 # favorito dele para quase-silêncio, e vem com a mesma confiança de uma fala de verdade. Em volume normal essas
 # palavras passam; em áudio fraco e curto elas não valem o risco de aparecer sem ninguém ter dito.
 FAINT_PEAK = 0.06
+# Despedida curta ("Tchau.", "Tchau, gente.", "Obrigada, pessoal!"): é o palpite que o Whisper mais inventa para um trecho curto e
+# ruidoso, em qualquer volume, e a ata não perde nada sem ela. Só vale para frase curta; "Obrigado por ter vindo hoje" fica.
+FAREWELL_START = {"tchau", "obrigado", "obrigada", "tchauzinho"}
+FAREWELL_MAX_WORDS = 4
+FAREWELL_MAX_SECONDS = 3.5
+
 FAINT_SUSPECT = {"obrigado", "obrigada", "muito obrigado", "muito obrigada", "tchau", "e aí", "até mais", "até logo", "amém", "tchau tchau", "valeu"}
 
 
@@ -340,6 +346,11 @@ def clean_live(segments, language="pt", strict=False, peak=None, window=None):
             continue
         if faint and _norm(text) in FAINT_SUSPECT:
             continue
+        words = _norm(text).split()
+        if words and words[0] in FAREWELL_START and len(words) <= FAREWELL_MAX_WORDS and seg["end"] - seg["start"] <= FAREWELL_MAX_SECONDS:
+            continue
+        if _norm(text) == "e aí" and seg["end"] - seg["start"] <= 1.2:
+            continue  # o "E aí" de meio segundo é o palpite do Whisper para um estalo; a pergunta de verdade dura mais
         # O provisório é um palpite sobre uma frase pela metade, mas exigir confiança alta demais escondia as
         # primeiras palavras e fazia o texto demorar a aparecer. O lixo (letras trocadas, repetição, inglês
         # inventado) já é barrado acima, para todo texto; aqui só cai o que o modelo mesmo acha duvidoso.
