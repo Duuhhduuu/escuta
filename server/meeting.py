@@ -240,6 +240,24 @@ FAREWELL_START = {"tchau", "obrigado", "obrigada", "tchauzinho"}
 FAREWELL_MAX_WORDS = 4
 FAREWELL_MAX_SECONDS = 3.5
 
+# Sons que o Whisper escreve como se fossem palavras ("Ouv.", "Ouf.", "Ooooo...", "mmmm", uma letra solta): não são fala.
+# "Ah." curto também cai (interjeição de meio segundo, o palpite de sempre para um estalo); não leva conteúdo para a ata.
+JUNK_WORDS = {"ouv", "ouf"}
+JUNK_SINGLE_LETTERS = {"o", "a", "u", "e"}
+JUNK_AH_MAX_SECONDS = 1.0
+
+
+def _is_junk_sound(text, seconds):
+    n = _norm(text)
+    if not n:
+        return False
+    if n in JUNK_WORDS or n in JUNK_SINGLE_LETTERS:
+        return True
+    if re.fullmatch(r"([a-z])\1{2,}", n.replace(" ", "")):  # "mmmm", "ooooooo"
+        return True
+    return n == "ah" and seconds <= JUNK_AH_MAX_SECONDS
+
+
 FAINT_SUSPECT = {"obrigado", "obrigada", "muito obrigado", "muito obrigada", "tchau", "e aí", "até mais", "até logo", "amém", "tchau tchau", "valeu"}
 
 
@@ -348,6 +366,8 @@ def clean_live(segments, language="pt", strict=False, peak=None, window=None):
             continue
         words = _norm(text).split()
         if words and words[0] in FAREWELL_START and len(words) <= FAREWELL_MAX_WORDS and seg["end"] - seg["start"] <= FAREWELL_MAX_SECONDS:
+            continue
+        if _is_junk_sound(text, seg["end"] - seg["start"]):
             continue
         if _norm(text) == "e aí" and seg["end"] - seg["start"] <= 1.2:
             continue  # o "E aí" de meio segundo é o palpite do Whisper para um estalo; a pergunta de verdade dura mais

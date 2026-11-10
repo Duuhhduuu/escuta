@@ -131,6 +131,14 @@ class Live(unittest.TestCase):
         self.assertEqual(len(meeting.clean_live(seg("Tchau", 0.0, 6.0), peak=0.4, window=8.0)), 1)
         self.assertEqual(len(meeting.clean_live(seg("Oi, tchau"), peak=0.4, window=2.0)), 1)
         self.assertEqual(meeting.clean_live(seg("E aí", 0.0, 0.5), peak=0.4, window=2.0), [])
+        # sons escritos como palavra
+        for text in ("Ouv.", "Ouf.", "Ooooooo...", "... mmmm...", "O...", "Ah.", "Ah!"):
+            self.assertEqual(meeting.clean_live(seg(text, 0.0, 0.6), peak=0.4, window=2.0), [], text)
+        # interjeição de verdade, mais longa, e respostas curtas comuns ficam
+        self.assertEqual(len(meeting.clean_live(seg("Ah, entendi.", 0.0, 1.5), peak=0.4, window=2.0)), 1)
+        self.assertEqual(len(meeting.clean_live(seg("Ah.", 0.0, 1.8), peak=0.4, window=2.0)), 1)
+        for text in ("Sim.", "Não.", "Ok.", "Oi!", "É.", "Tá."):
+            self.assertEqual(len(meeting.clean_live(seg(text, 0.0, 0.6), peak=0.4, window=2.0)), 1, text)
         self.assertEqual(len(meeting.clean_live(seg("E aí?", 0.0, 1.6), peak=0.4, window=2.0)), 1)
 
 
