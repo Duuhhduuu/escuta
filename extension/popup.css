@@ -23,7 +23,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #161d32;
     --ink: #f6f4ef;
     --mute: #9aa6b6;
@@ -41,6 +41,24 @@
     --mc: #3347ff;
     --cur: #ffc53d;
   }
+}
+:root[data-theme="dark"] {
+  --paper: #161d32;
+  --ink: #f6f4ef;
+  --mute: #9aa6b6;
+  --line: #2a3354;
+  --surf: #1f2845;
+  --field: #0e1424;
+  --signal: #8e9bff;
+  --signal-ink: #0e1424;
+  --ok: #4cd08d;
+  --warn: #ffc53d;
+  --bad: #ff8a7a;
+  --off: #3a4370;
+  --mb: #ffc53d;
+  --mr: #0e1424;
+  --mc: #3347ff;
+  --cur: #ffc53d;
 }
 
 * { box-sizing: border-box; }
@@ -138,6 +156,11 @@ select, input {
 }
 select option { color: #0e1424; }
 
+/* menu suspenso próprio (dropdown.css): aqui o cartão é o papel e a caixa interna é a superfície */
+:root { --card: var(--paper); --card2: var(--surf); }
+.dd-trigger { height: 36px; padding: 0 12px; font-size: 13px; }
+.dd-menu { max-height: 220px; }
+
 select:focus-visible, input:focus-visible, button:focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
@@ -190,3 +213,6 @@ button.link:hover { text-decoration: underline; filter: none; }
 @media (prefers-reduced-motion: reduce) { .rec-dot, .wave--busy i { animation: none; } }
 
 .hint--bad { background: color-mix(in srgb, var(--bad) 12%, transparent); font-family: inherit; }
+
+/* O aviso curto embaixo do título do campo fica em uma linha própria, não colado ao título. */
+label span small { display: block; margin-top: 2px; font-size: 11.5px; line-height: 1.35; }

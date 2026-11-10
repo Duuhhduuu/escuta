@@ -35,6 +35,7 @@ function fillChats() {
     ...(voice.some((e) => !e.chat) ? [new Option("Sem conversa (salvas antes)", "\u0000")] : []),
   );
   select.value = [...select.options].some((o) => o.value === current) ? current : "";
+  select.sync?.();
 }
 
 // ---- busca sem acento e sem maiúscula ---------------------------------------
@@ -279,14 +280,74 @@ function markdown(source, terms) {
 
 // ---- cartões ----------------------------------------------------------------------
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+// Ícones de traço, os mesmos do desenho da marca. Os caminhos são fixos, nunca vêm de texto de fora.
+const ICONS = {
+  mic: ["M9 3h6v11H9z", "M5 11a7 7 0 0 0 14 0M12 18v3"],
+  people: ["M12.5 8a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0", "M2.5 20a6.5 6.5 0 0 1 13 0", "M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.3A6.5 6.5 0 0 1 21.5 20"],
+  clock: ["M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0", "M12 7.5V12l3 2"],
+};
+function icon(name, size = 13) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", size);
+  svg.setAttribute("height", size);
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.9");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const d of ICONS[name]) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
+}
+
+const initials = (name) =>
+  (name || "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || "·";
+
+// Barrinhas de onda do desenho. Não são o áudio de verdade: o formato sai do próprio texto, só para a mensagem ter cara de voz.
+function waveBars(seed) {
+  const wave = el("span", "wave");
+  wave.setAttribute("aria-hidden", "true");
+  let h = 7;
+  for (const ch of (seed || "voz").slice(0, 14).padEnd(14, "a")) {
+    h = 4 + ((ch.codePointAt(0) * 7 + h * 3) % 11);
+    wave.append(Object.assign(el("i"), { style: `height:${h}px` }));
+  }
+  return wave;
+}
+
+const chipOf = (iconName, label, cls) => {
+  const chip = el("span", `tagchip${cls ? ` ${cls}` : ""}`);
+  chip.append(icon(iconName), label);
+  return chip;
+};
+
 function card(entry, terms) {
   const item = el("article", "item");
+  const name = entry.chat || entry.who || "Mensagem de voz";
 
-  const meta = el("div", "meta");
-  if (entry.chat) meta.append(el("span", "chat", entry.chat));
-  if (entry.who && entry.who !== entry.chat) meta.append(el("span", null, entry.who));
-  for (const bit of [fmtDate(entry.at), fmtDuration(entry.duration)]) if (bit) meta.append(el("span", null, bit));
-  item.append(meta);
+  const head = el("div", "item-head");
+  const who = el("div", "who-col");
+  const line = el("div", "who-line");
+  line.append(el("span", "who-name", name), chipOf("mic", "Voz", "tagchip--quiet"));
+  who.append(line);
+  if (entry.who && entry.chat && entry.who !== entry.chat) who.append(el("span", "who-sub", entry.who));
+  const wave = el("div", "wave-row");
+  wave.append(waveBars(entry.text), el("span", "dur", fmtDuration(entry.duration) || "0:00"));
+  head.append(el("span", "avatar", initials(name)), who, wave);
+  item.append(head);
+  if (entry.at) item.append(el("span", "item-when", fmtDate(entry.at)));
 
   const text = el("p", "text");
   text.append(highlighted(entry.text || "Nenhuma fala reconhecida.", terms));
@@ -301,7 +362,7 @@ function card(entry, terms) {
   }
 
   const bar = el("div", "actions");
-  if ((entry.text || "").length > 420) {
+  if ((entry.text || "").length > 200) {
     text.classList.add("clamp");
     bar.append(
       button("Ver tudo", (b) => {
@@ -379,27 +440,75 @@ function dayLabel(ms) {
 const longDate = (ms) =>
   new Date(ms).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-// Na lista, cada reunião é uma linha só: dia, assunto e um detalhe. Clicar abre a reunião.
+// Itens (marcadores) de uma seção da ata, sem os rótulos em negrito: o que a lista mostra de relance.
+const bulletsOf = (minutes, title, max = 3) => {
+  const found = sectionsOf(minutes).list.find((s) => title.test(s.title));
+  if (!found) return [];
+  return found.text
+    .split("\n")
+    .map((l) => l.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/)?.[1])
+    .filter(Boolean)
+    .map((l) => l.replace(/\*\*|__|`/g, "").replace(/\s*\[\d{1,2}:\d{2}\]/g, "").trim())
+    .slice(0, max);
+};
+const DECISION_TITLE = /decis|decid/i;
+
+// Na lista, cada reunião é um cartão: assunto, o essencial da ata (decisões e pendências) e as ações. Abrir mostra tudo.
 function meetingRow(m, terms) {
-  const row = el("a", "row");
-  row.href = `#m:${m.id}`;
+  const row = el("article", "mcard");
   row.id = `m-${m.id}`;
-
   row.dataset.status = m.status || "done";
-  const when = el("span", "when");
-  if (m.at) when.append(el("b", "time", dayParts(m.at).time));
-  const what = el("span", "what");
-  const title = el("b", "subject");
-  title.append(highlighted(subject(m), terms));
-  const bits = [roomCode(m), fmtDuration(m.duration), templateName(m.template)].filter(Boolean).join(" · ");
-  what.append(title, el("span", "sub", bits));
+  const open = () => (location.hash = `#m:${m.id}`);
 
+  const top = el("div", "mcard-top");
+  top.append(chipOf("people", "Reunião"));
+  if (m.at) top.append(el("span", "item-when", fmtDate(m.at)));
   const state = el("span", "state");
   if (m.status === "recording") state.append(el("span", "chip chip--live", "Ao vivo"));
   else if (m.status === "processing") state.append(el("span", "chip chip--busy", m.stage === "retry" ? "Tentando de novo" : STAGES[m.stage] ? "Gerando a ata" : "Processando"));
   else if (m.status === "failed") state.append(el("span", "chip chip--bad", "Não deu certo"));
-  else state.append(el("span", "chev", "›"));
-  row.append(when, what, state);
+  top.append(state);
+
+  const title = el("a", "subject");
+  title.href = `#m:${m.id}`;
+  title.append(highlighted(subject(m), terms));
+
+  const meta = el("div", "mcard-meta");
+  for (const [ic, label] of [["clock", fmtDuration(m.duration)], [null, roomCode(m)], [null, templateName(m.template)]]) {
+    if (!label) continue;
+    const bit = el("span");
+    if (ic) bit.append(icon(ic));
+    bit.append(label);
+    meta.append(bit);
+  }
+  row.append(top, title, meta);
+
+  if (m.minutes) {
+    const columns = [["Decisões", bulletsOf(m.minutes, DECISION_TITLE)], ["Pendências", bulletsOf(m.minutes, TODO_TITLE)]].filter(([, list]) => list.length);
+    if (columns.length) {
+      const box = el("div", "mcard-box");
+      for (const [label, list] of columns) {
+        const col = el("div", "mcard-col");
+        col.append(el("span", "label", label));
+        const ul = el("ul");
+        for (const text of list) ul.append(el("li", null, text));
+        col.append(ul);
+        box.append(col);
+      }
+      row.append(box);
+    }
+  }
+
+  const bar = el("div", "actions");
+  bar.append(button("Abrir a ata", open, "primary"));
+  if (m.minutes) bar.append(button("Copiar", (b) => copyTo(b, m.minutes, "Copiar")));
+  bar.append(
+    eraseButton(() => {
+      chrome.storage.local.remove(MEETING_PREFIX + m.id);
+      if (typeof RecDB !== "undefined") RecDB.drop(m.id).catch(() => {});
+    }),
+  );
+  row.append(bar);
   return row;
 }
 
@@ -586,6 +695,7 @@ function meetingDetail(m, terms) {
     pick.append(...templates.map((t) => new Option(t.name, t.id)));
     pick.value = templates.some((t) => t.id === m.template) ? m.template : templates[0].id;
     bar.append(pick, button(m.minutes ? "Refazer ata" : "Gerar ata", () => send({ type: "meeting-minutes", id: m.id, template: pick.value })));
+    dropdown(pick, true); // o menu próprio entra logo depois do <select>, que fica escondido
   }
   if (m.status === "failed") bar.append(retryButton());
   bar.append(erase);
@@ -674,15 +784,17 @@ function meetingDetail(m, terms) {
   tabs.setAttribute("role", "tablist");
   const labels = { chat: "Perguntar", ata: "Ata", transcript: `Transcrição (${lines.length})` };
   const tabButtons = {};
-  const select = (key) => {
+  const select = (key, animate = false) => {
     ui.tab = key;
     for (const [k, b] of Object.entries(tabButtons)) {
       b.setAttribute("aria-selected", String(k === key));
       panes[k].hidden = k !== key;
     }
+    // Só quando a pessoa troca de aba: a tela é refeita a cada atualização da reunião e o fade não pode repetir a cada uma.
+    if (animate) replay(panes[key], "pane-in");
   };
   for (const key of ["chat", "ata", "transcript"]) {
-    const t = button(labels[key], () => select(key), "tab");
+    const t = button(labels[key], () => select(key, true), "tab");
     t.setAttribute("role", "tab");
     tabButtons[key] = t;
     tabs.append(t);
@@ -692,6 +804,16 @@ function meetingDetail(m, terms) {
   return view;
 }
 
+// Reinicia uma animação de entrada de uma vez só (a classe sai e volta no próximo quadro).
+function replay(node, cls) {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+}
+
+let navigated = false; // true só quando a pessoa mudou de tela (abriu ou voltou), nunca numa atualização de dados
+window.addEventListener("hashchange", () => (navigated = true));
+
 const openMeetingId = () => (location.hash.startsWith("#m:") ? location.hash.slice(3) : "");
 
 function render() {
@@ -700,10 +822,14 @@ function render() {
   // history.html#m:<id> abre a reunião (o popup e a lista usam isso); sem hash, a lista.
   const opened = openMeetingId() && meetings.find((m) => m.id === openMeetingId());
   document.body.classList.toggle("is-detail", Boolean(opened)); // "detail" é a classe do conteúdo: no body, ele virava uma coluna flex e o cabeçalho encolhia
+  const arrived = navigated;
+  navigated = false;
   if (opened) {
-    $("list").replaceChildren(meetingDetail(opened, terms));
+    const view = meetingDetail(opened, terms);
+    $("list").replaceChildren(view);
     $("empty").hidden = true;
     window.scrollTo(0, 0);
+    if (arrived) replay(view, "view-in");
     return;
   }
 
@@ -733,6 +859,7 @@ function render() {
     nodes.push(x.node());
   }
   $("list").replaceChildren(...nodes);
+  if (arrived) replay($("list"), "view-in");
 
   const total = voice.length + meetings.length;
   const some = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -757,6 +884,8 @@ $("q").addEventListener("input", () => {
   clearTimeout(typing);
   typing = setTimeout(render, 120);
 });
+dropdown($("kind"));
+dropdown($("chat"));
 $("chat").addEventListener("change", render);
 $("kind").addEventListener("change", render);
 

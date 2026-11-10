@@ -8,6 +8,8 @@ const DEFAULTS = {
 
 const $ = (id) => document.getElementById(id);
 
+for (const id of ["template", "recLanguage", "language", "whisperModel"]) dropdown($(id)); // menus no estilo da marca, no lugar da lista do sistema
+
 function setStatus(name, state, text) {
   $(`dot-${name}`).dataset.state = state;
   $(`txt-${name}`).textContent = text;
